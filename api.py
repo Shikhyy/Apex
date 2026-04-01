@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from agents.graph import apex_graph, _default_state, _load_agent_ids
+from mcp_tools.risk_analysis import fetch_agent_reputation, fetch_reputation_signals
 
 app = FastAPI(title="APEX", version="1.0.0")
 
@@ -236,11 +237,6 @@ async def get_agents():
 @app.get("/reputation/{agent_id}")
 async def get_reputation(agent_id: int):
     """Fetch on-chain reputation signals for a given ERC-8004 agent."""
-    # TODO: Implement actual on-chain read from Reputation Registry
-    return {
-        "agent_id": agent_id,
-        "avg_score": 0.0,
-        "normalized": 0.0,
-        "count": 0,
-        "signals": [],
-    }
+    result = fetch_agent_reputation(agent_id)
+    result["signals"] = fetch_reputation_signals(agent_id)
+    return result

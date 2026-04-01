@@ -310,3 +310,57 @@ def check_protocol_audit_status(protocol: str) -> dict:
         "audit_date": "",
         "audit_url": "",
     }
+
+
+def fetch_reputation_signals(
+    agent_id: int,
+    registry_address: Optional[str] = None,
+) -> list[dict]:
+    """Fetch individual reputation signals (FeedbackSubmitted events) for an agent.
+
+    Returns a list of signal dicts, each with:
+    - reviewer_agent_id (int)
+    - subject_agent_id (int)
+    - evidence_uri (str)
+    - score (int)
+    - block_number (int)
+    """
+    if registry_address is None:
+        registry_address = DEFAULT_REGISTRY_ADDRESS
+
+    try:
+        w3 = Web3(Web3.HTTPProvider(BASE_SEPOLIA_RPC, request_kwargs={"timeout": 10}))
+
+        if not w3.is_connected():
+            return []
+
+        registry = w3.eth.contract(
+            address=Web3.to_checksum_address(registry_address),
+            abi=REGISTRY_ABI,
+        )
+
+        event_filter = registry.events.FeedbackSubmitted.create_filter(
+            from_block=0,
+            argument_filters={"subjectAgentId": agent_id},
+        )
+
+        events = event_filter.get_all_entries()
+        signals = []
+        for event in events:
+            signals.append(
+                {
+                    "reviewer_agent_id": event["args"]["reviewerAgentId"],
+                    "subject_agent_id": event["args"]["subjectAgentId"],
+                    "evidence_uri": event["args"]["evidenceURI"],
+                    "score": event["args"]["score"],
+                    "block_number": event["blockNumber"],
+                }
+            )
+
+        return signals
+
+    except Exception as e:
+        logger.error(
+            "Failed to fetch reputation signals for agent_id=%d: %s", agent_id, e
+        )
+        return []
