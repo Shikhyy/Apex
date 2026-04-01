@@ -179,19 +179,34 @@ def scout_node(state: APEXState) -> dict:
         )
 
         # 3. Query LLM for synthesis
-        messages = [
-            SystemMessage(content=SCOUT_SYSTEM),
-            HumanMessage(content=data_context),
-        ]
-        response = llm.invoke(messages)
-        llm_text = (
-            response.content
-            if isinstance(response.content, str)
-            else str(response.content)
-        )
+        llm_text = ""
+        try:
+            messages = [
+                SystemMessage(content=SCOUT_SYSTEM),
+                HumanMessage(content=data_context),
+            ]
+            response = _get_llm().invoke(messages)
+            llm_text = (
+                response.content
+                if isinstance(response.content, str)
+                else str(response.content)
+            )
+        except Exception as llm_err:
+            logger.warning("LLM call failed (%s), using raw data fallback", llm_err)
 
         # 4. Parse and filter opportunities
-        opportunities = _parse_llm_response(llm_text, raw_opportunities)
+        if llm_text:
+            opportunities = _parse_llm_response(llm_text, raw_opportunities)
+        else:
+            # Fallback: use raw market data with basic filtering
+            opportunities = []
+            for opp in raw_opportunities:
+                if opp["liquidity_usd"] < 500_000:
+                    continue
+                o = dict(opp)
+                if o["apy"] > 50:
+                    o["risk_score"] = 0.95
+                opportunities.append(YieldOpportunity(**o))
 
         # 5. Build reasoning summary
         if opportunities:

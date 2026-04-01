@@ -9,12 +9,20 @@ import json
 
 load_dotenv()
 
-llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0.1,
-    api_key=os.environ.get("GROQ_API_KEY", ""),
-    max_retries=3,
-)
+_llm = None
+
+
+def _get_llm():
+    global _llm
+    if _llm is None:
+        _llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            temperature=0.1,
+            api_key=os.environ.get("GROQ_API_KEY", ""),
+            max_retries=3,
+        )
+    return _llm
+
 
 STRATEGIST_SYSTEM = """You are the STRATEGIST agent in the APEX yield optimizer.
 Rank opportunities by risk-adjusted return and generate signed trade intents.
@@ -106,7 +114,7 @@ Opportunities:
 Return ONLY a JSON array of objects with keys: protocol, pool, rank, risk_adjusted_score."""
 
     try:
-        response = llm.invoke(
+        response = _get_llm().invoke(
             [
                 ("system", STRATEGIST_SYSTEM),
                 ("human", prompt),
