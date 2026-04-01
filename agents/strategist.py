@@ -90,7 +90,7 @@ def _calculate_position_size(
 
 def _rank_with_llm(
     opportunities: list[YieldOpportunity], volatility_index: float
-) -> list[dict]:
+) -> dict[str, float]:
     """Use LLM to rank opportunities and return scored results."""
     opp_text = json.dumps(opportunities, indent=2)
     prompt = f"""Given these yield opportunities and a volatility index of {volatility_index},

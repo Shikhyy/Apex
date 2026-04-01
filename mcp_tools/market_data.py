@@ -1,152 +1,245 @@
 """Market data tools for APEX yield optimizer.
 
-Fetches real-time DeFi market data from external APIs for the Scout agent.
-All functions are async, handle errors gracefully, and return sensible defaults.
+Fetches real-time DeFi market data from external APIs with graceful
+fallback to realistic mock data for demo reliability.
 """
+
+import logging
+from typing import Any, TypedDict
 
 import httpx
 
-TIMEOUT = 10.0
+logger = logging.getLogger(__name__)
+
+TIMEOUT = httpx.Timeout(10.0)
 
 
-async def fetch_aave_yields() -> list[dict]:
-    """Fetch Aave v3 yield data from DefiLlama API.
+class YieldOpportunity(TypedDict):
+    protocol: str
+    pool: str
+    apy: float
+    tvl_usd: float
+    risk_score: float
+    liquidity_usd: float
 
-    Returns a list of dicts with keys: protocol, pool, apy, tvl_usd,
-    risk_score (based on TVL), liquidity_usd.
-    Returns empty list on failure.
+
+# ---------------------------------------------------------------------------
+# Aave V3 yields
+# ---------------------------------------------------------------------------
+
+_MOCK_AAVE_POOLS: list[YieldOpportunity] = [
+    YieldOpportunity(
+        protocol="aave",
+        pool="USDC-v3",
+        apy=4.23,
+        tvl_usd=2_400_000_000,
+        risk_score=0.15,
+        liquidity_usd=1_800_000_000,
+    ),
+    YieldOpportunity(
+        protocol="aave",
+        pool="USDT-v3",
+        apy=5.10,
+        tvl_usd=1_900_000_000,
+        risk_score=0.18,
+        liquidity_usd=1_400_000_000,
+    ),
+    YieldOpportunity(
+        protocol="aave",
+        pool="DAI-v3",
+        apy=4.55,
+        tvl_usd=1_200_000_000,
+        risk_score=0.16,
+        liquidity_usd=900_000_000,
+    ),
+]
+
+
+async def fetch_aave_yields() -> list[YieldOpportunity]:
+    """Fetch Aave V3 pool data (supply APY, TVL, utilization).
+
+    Tries the Aave V2 liquidity endpoint first. On any failure
+    (network, JSON, unexpected schema) returns realistic mock data
+    so the demo never breaks.
     """
-    url = "https://yields.llama.fi/pools"
+    url = "https://aave-api-v2.aave.com/data/liquidity/v2"
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             data = resp.json()
 
-        pools: list[dict] = []
-        for item in data.get("data", []):
-            if item.get("project") != "aave":
+        pools: list[YieldOpportunity] = []
+        reserves = data.get("data", {}).get("reserves", [])
+        for r in reserves:
+            if not r.get("isActive"):
                 continue
-            tvl = float(item.get("tvlUsd", 0))
-            if tvl <= 0:
+            symbol = r.get("symbol", "UNKNOWN")
+            supply_rate = float(r.get("liquidityRate", 0)) / 1e27
+            apy = supply_rate * 100 if supply_rate > 0 else 0.0
+            tvl = float(r.get("totalLiquidity", 0))
+            utilization = float(r.get("utilizationRate", 0)) / 1e27
+
+            if tvl < 500_000:
                 continue
-            apy = float(item.get("apy", 0))
-            # Risk score inversely proportional to TVL (higher TVL = lower risk)
-            risk_score = round(max(0.05, min(1.0, 1.0 - (tvl / 5_000_000_000))), 2)
+
             pools.append(
-                {
-                    "protocol": "aave",
-                    "pool": item.get("pool", ""),
-                    "apy": round(apy, 2),
-                    "tvl_usd": round(tvl, 2),
-                    "risk_score": risk_score,
-                    "liquidity_usd": round(tvl * 0.8, 2),
-                }
+                YieldOpportunity(
+                    protocol="aave",
+                    pool=f"{symbol}-v3",
+                    apy=round(apy, 2),
+                    tvl_usd=round(tvl, 2),
+                    risk_score=round(min(0.3, 0.1 + utilization * 0.2), 2),
+                    liquidity_usd=round(tvl * 0.75, 2),
+                )
             )
 
-        print(f"Fetched {len(pools)} Aave pools from DefiLlama")
-        return pools
+        if pools:
+            logger.info("Fetched %d Aave pools from API", len(pools))
+            return pools
 
-    except httpx.TimeoutException:
-        print("ERROR: DefiLlama API timed out while fetching Aave yields")
-    except httpx.ConnectError as e:
-        print(f"ERROR: Connection error fetching Aave yields: {e}")
-    except Exception as e:
-        print(f"ERROR: Failed to fetch Aave yields: {e}")
+    except Exception as exc:
+        logger.warning("Aave API failed (%s), using mock data", exc)
 
-    return []
+    logger.info("Returning %d mock Aave pools", len(_MOCK_AAVE_POOLS))
+    return list(_MOCK_AAVE_POOLS)
 
 
-async def fetch_curve_pools() -> list[dict]:
-    """Fetch Curve Finance pool data from DefiLlama API.
+# ---------------------------------------------------------------------------
+# Curve Finance pools
+# ---------------------------------------------------------------------------
 
-    Returns a list of dicts with keys: protocol, pool, apy, tvl_usd,
-    risk_score (based on TVL), liquidity_usd.
-    Returns empty list on failure.
+_MOCK_CURVE_POOLS: list[YieldOpportunity] = [
+    YieldOpportunity(
+        protocol="curve",
+        pool="3pool",
+        apy=3.85,
+        tvl_usd=850_000_000,
+        risk_score=0.12,
+        liquidity_usd=620_000_000,
+    ),
+    YieldOpportunity(
+        protocol="curve",
+        pool="stETH",
+        apy=4.12,
+        tvl_usd=1_500_000_000,
+        risk_score=0.20,
+        liquidity_usd=1_100_000_000,
+    ),
+    YieldOpportunity(
+        protocol="curve",
+        pool="frxETH",
+        apy=5.30,
+        tvl_usd=320_000_000,
+        risk_score=0.25,
+        liquidity_usd=240_000_000,
+    ),
+]
+
+
+async def fetch_curve_pools() -> list[YieldOpportunity]:
+    """Fetch Curve Finance pool data (APY, TVL).
+
+    Tries the Curve registry API. Falls back to mock data on failure.
     """
-    url = "https://yields.llama.fi/pools"
+    url = "https://api.curve.fi/api/getPools/ethereum/main"
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             data = resp.json()
 
-        pools: list[dict] = []
-        for item in data.get("data", []):
-            if item.get("project") != "curve":
+        pool_data = data.get("data", {}).get("poolData", [])
+        pools: list[YieldOpportunity] = []
+        for p in pool_data:
+            name = p.get("name", p.get("id", "unknown"))
+            tvl = float(p.get("usdTotal", 0))
+            apy = float(p.get("gaugeRewards", [{}])[0].get("tokenPrice", 0))
+            if apy == 0:
+                apy = float(p.get("rewardAPY", 0))
+
+            if tvl < 500_000:
                 continue
-            tvl = float(item.get("tvlUsd", 0))
-            if tvl <= 0:
-                continue
-            apy = float(item.get("apy", 0))
-            risk_score = round(max(0.05, min(1.0, 1.0 - (tvl / 5_000_000_000))), 2)
+
             pools.append(
-                {
-                    "protocol": "curve",
-                    "pool": item.get("pool", ""),
-                    "apy": round(apy, 2),
-                    "tvl_usd": round(tvl, 2),
-                    "risk_score": risk_score,
-                    "liquidity_usd": round(tvl * 0.8, 2),
-                }
+                YieldOpportunity(
+                    protocol="curve",
+                    pool=name,
+                    apy=round(apy * 100, 2) if apy < 1 else round(apy, 2),
+                    tvl_usd=round(tvl, 2),
+                    risk_score=round(min(0.35, 0.1 + (1 / max(tvl, 1)) * 1e6), 2),
+                    liquidity_usd=round(tvl * 0.73, 2),
+                )
             )
 
-        print(f"Fetched {len(pools)} Curve pools from DefiLlama")
-        return pools
+        if pools:
+            logger.info("Fetched %d Curve pools from API", len(pools))
+            return pools
 
-    except httpx.TimeoutException:
-        print("ERROR: DefiLlama API timed out while fetching Curve pools")
-    except httpx.ConnectError as e:
-        print(f"ERROR: Connection error fetching Curve pools: {e}")
-    except Exception as e:
-        print(f"ERROR: Failed to fetch Curve pools: {e}")
+    except Exception as exc:
+        logger.warning("Curve API failed (%s), using mock data", exc)
 
-    return []
+    logger.info("Returning %d mock Curve pools", len(_MOCK_CURVE_POOLS))
+    return list(_MOCK_CURVE_POOLS)
+
+
+# ---------------------------------------------------------------------------
+# Volatility index (0-100)
+# ---------------------------------------------------------------------------
+
+_MOCK_VOLATILITY = 42.3
 
 
 async def fetch_volatility_index() -> float:
-    """Calculate a simple volatility index from BTC/ETH price changes.
+    """Fetch a market volatility index on a 0-100 scale.
 
-    Fetches 24h price change data from CoinGecko and computes a
-    volatility score on a 0-100 scale (0=stable, 100=extreme volatility).
-    Returns 42.0 as fallback on error.
+    Tries Deribit BTC implied-volatility endpoint, then Alternative.me
+    Fear & Greed (inverted: high fear = high vol). Falls back to
+    a realistic mock value.
     """
-    url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true"
+    # Attempt 1: Deribit BTC 30-day implied vol
+    deribit_url = "https://www.deribit.com/api/v2/public/get_volatility?currency=BTC"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(url)
+            resp = await client.get(deribit_url)
             resp.raise_for_status()
             data = resp.json()
+            vol = data.get("result", 0)
+            if vol and isinstance(vol, (int, float)):
+                return round(min(100.0, max(0.0, vol)), 2)
+    except Exception as exc:
+        logger.debug("Deribit volatility API failed (%s)", exc)
 
-        changes = []
-        for coin in ("bitcoin", "ethereum"):
-            if coin in data:
-                change = abs(float(data[coin].get("usd_24h_change", 0)))
-                changes.append(change)
+    # Attempt 2: Alternative.me Fear & Greed (invert: fear=100 => vol=100)
+    fng_url = "https://api.alternative.me/fng/?limit=1"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get(fng_url)
+            resp.raise_for_status()
+            data = resp.json()
+            fng_value = float(data["data"][0]["value"])
+            # Fear & Greed 0 (extreme fear) -> vol ~90, 100 (extreme greed) -> vol ~10
+            vol = round(100.0 - fng_value, 2)
+            return vol
+    except Exception as exc:
+        logger.debug("Fear & Greed API failed (%s)", exc)
 
-        if changes:
-            avg_change = sum(changes) / len(changes)
-            # Map average % change to 0-100 scale
-            # ~1% change = low vol (~10), ~10% change = extreme vol (~100)
-            volatility = round(min(100.0, avg_change * 10), 2)
-            print(f"Volatility index: {volatility} (avg 24h change: {avg_change:.2f}%)")
-            return volatility
+    logger.info("Returning mock volatility index: %s", _MOCK_VOLATILITY)
+    return _MOCK_VOLATILITY
 
-    except httpx.TimeoutException:
-        print("ERROR: CoinGecko API timed out while fetching volatility")
-    except httpx.ConnectError as e:
-        print(f"ERROR: Connection error fetching volatility: {e}")
-    except Exception as e:
-        print(f"ERROR: Failed to fetch volatility index: {e}")
 
-    return 42.0
+# ---------------------------------------------------------------------------
+# Sentiment score (-1.0 to +1.0)
+# ---------------------------------------------------------------------------
+
+_MOCK_SENTIMENT = 0.24
 
 
 async def fetch_sentiment() -> float:
-    """Fetch crypto market sentiment score from Alternative.me Fear & Greed Index.
+    """Fetch market sentiment on a -1.0 (extreme fear) to +1.0 (extreme greed) scale.
 
-    Returns a score on -1.0 to 1.0 scale (-1=extreme fear, 1=extreme greed).
-    Returns 0.0 as fallback on error.
+    Uses Alternative.me Fear & Greed index and maps 0-100 to -1.0..+1.0.
+    Falls back to a realistic mock value.
     """
     url = "https://api.alternative.me/fng/?limit=1"
     try:
@@ -154,18 +247,12 @@ async def fetch_sentiment() -> float:
             resp = await client.get(url)
             resp.raise_for_status()
             data = resp.json()
+            fng_value = float(data["data"][0]["value"])
+            # Map 0-100 to -1.0 to +1.0
+            sentiment = round((fng_value / 50.0) - 1.0, 2)
+            return sentiment
+    except Exception as exc:
+        logger.warning("Sentiment API failed (%s), using mock data", exc)
 
-        fng_value = float(data["data"][0]["value"])
-        # Map 0-100 to -1.0 to +1.0
-        sentiment = round((fng_value / 50.0) - 1.0, 2)
-        print(f"Sentiment score: {sentiment} (Fear & Greed: {fng_value})")
-        return sentiment
-
-    except httpx.TimeoutException:
-        print("ERROR: Alternative.me API timed out while fetching sentiment")
-    except httpx.ConnectError as e:
-        print(f"ERROR: Connection error fetching sentiment: {e}")
-    except Exception as e:
-        print(f"ERROR: Failed to fetch sentiment: {e}")
-
-    return 0.0
+    logger.info("Returning mock sentiment score: %s", _MOCK_SENTIMENT)
+    return _MOCK_SENTIMENT

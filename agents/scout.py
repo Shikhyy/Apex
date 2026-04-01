@@ -22,12 +22,20 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0.1,
-    api_key=os.environ.get("GROQ_API_KEY", ""),
-    max_retries=3,
-)
+_llm = None
+
+
+def _get_llm():
+    global _llm
+    if _llm is None:
+        _llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            temperature=0.1,
+            api_key=os.environ.get("GROQ_API_KEY", ""),
+            max_retries=3,
+        )
+    return _llm
+
 
 SCOUT_SYSTEM = """You are the SCOUT agent in the APEX yield optimizer.
 Fetch real-time yield data using all available tools, then synthesize
@@ -130,6 +138,17 @@ def _fetch_all_market_data() -> tuple[list[YieldOpportunity], float, float]:
         )
         return aave_pools, curve_pools, vol, sentiment
 
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, _gather())
+            return future.result()
     return asyncio.run(_gather())
 
 

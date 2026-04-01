@@ -1,19 +1,34 @@
 """Guardian agent — risk management and circuit breaker."""
 
 import json
+from typing import Optional
 from langchain_groq import ChatGroq
 from agents.graph import APEXState, GuardianReason
+from mcp_tools.risk_analysis import calculate_projected_drawdown, fetch_agent_reputation
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
 
-llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0.0,
-    api_key=os.environ.get("GROQ_API_KEY", ""),
-    max_retries=3,
-)
+_llm: Optional[ChatGroq] = None
+
+
+def _get_llm() -> Optional[ChatGroq]:
+    """Lazy LLM initialization — returns None if no API key."""
+    global _llm
+    if _llm is not None:
+        return _llm
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        return None
+    _llm = ChatGroq(
+        model="llama-3.3-70b-versatile",
+        temperature=0.0,
+        api_key=api_key,
+        max_retries=3,
+    )
+    return _llm
+
 
 VETO_THRESHOLDS = {
     "max_drawdown_pct": 5.0,
@@ -132,6 +147,34 @@ def guardian_node(state: APEXState) -> dict:
                 f"Sentiment score {sentiment_score:.2f} below threshold {VETO_THRESHOLDS['min_sentiment']:.2f}.",
             )
 
+        # Projected drawdown — use MCP tool
+        top_intent = ranked_intents[0]
+        top_opp = top_intent.get("opportunity", {})
+        projected_dd = calculate_projected_drawdown(top_opp, volatility_index)
+        if projected_dd > VETO_THRESHOLDS["max_drawdown_pct"]:
+            print(
+                f"[Guardian] VETO: projected_drawdown={projected_dd}% > {VETO_THRESHOLDS['max_drawdown_pct']}%"
+            )
+            return _veto(
+                "VETOED",
+                "drawdown_limit",
+                f"Projected drawdown {projected_dd:.2f}% exceeds threshold {VETO_THRESHOLDS['max_drawdown_pct']}%.",
+            )
+
+        # Scout reputation — check on-chain via ERC-8004
+        scout_id = state.get("scout_agent_id", 0)
+        if scout_id > 0:
+            rep = fetch_agent_reputation(scout_id)
+            if rep["normalized"] < VETO_THRESHOLDS["min_scout_rep"]:
+                print(
+                    f"[Guardian] VETO: scout_rep={rep['normalized']:.2f} < {VETO_THRESHOLDS['min_scout_rep']}"
+                )
+                return _veto(
+                    "VETOED",
+                    "low_scout_reputation",
+                    f"Scout agent {scout_id} reputation {rep['normalized']:.2f} below threshold {VETO_THRESHOLDS['min_scout_rep']}.",
+                )
+
         # ── 2. LLM evaluation ────────────────────────────────────────────
         intents_summary = "\n".join(
             f"- {i.get('opportunity', {}).get('protocol', '?')}/{i.get('opportunity', {}).get('pool', '?')}: "
@@ -163,6 +206,15 @@ def guardian_node(state: APEXState) -> dict:
         )
 
         print("[Guardian] Sending to LLM for evaluation...")
+        llm = _get_llm()
+        if llm is None:
+            print("[Guardian] No Groq API key — defaulting to VETO")
+            return _veto(
+                "VETOED",
+                "uncertainty",
+                "Groq API key not configured. Cannot perform LLM evaluation.",
+                0.0,
+            )
         response = llm.invoke([("system", system_prompt), ("human", user_prompt)])
         content = response.content.strip()
 
@@ -202,6 +254,16 @@ def guardian_node(state: APEXState) -> dict:
         }
         if reason not in valid_reasons:
             reason = "uncertainty"
+
+        # LLM confidence threshold — if LLM itself is unsure, VETO
+        if confidence < 0.5:
+            print(f"[Guardian] VETO: LLM confidence={confidence:.2f} < 0.50")
+            return _veto(
+                "VETOED",
+                "uncertainty",
+                f"LLM confidence {confidence:.2f} below safety threshold 0.50.",
+                confidence,
+            )
 
         if decision == "APPROVED":
             reason = "safe_to_proceed"
