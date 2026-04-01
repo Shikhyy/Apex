@@ -408,7 +408,8 @@ export default function Home() {
     try {
       await triggerCycle()
       if (esRef.current) esRef.current.close()
-      const es = new EventSource("http://localhost:8000/stream")
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const es = new EventSource(`${API_BASE}/stream`)
       esRef.current = es
       es.onmessage = handleSSEMessage
       es.onerror = () => {
