@@ -1,12 +1,18 @@
 """Guardian agent — risk management and circuit breaker."""
 
 import json
+import asyncio
+import logging
 from typing import Optional
 from langchain_groq import ChatGroq
 from agents.graph import APEXState, GuardianReason
 from mcp_tools.risk_analysis import calculate_projected_drawdown, fetch_agent_reputation
 from dotenv import load_dotenv
 import os
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -269,11 +275,71 @@ def guardian_node(state: APEXState) -> dict:
             reason = "safe_to_proceed"
 
         print(f"[Guardian] LLM decision: {decision} ({reason}) — {detail}")
-        return _veto(decision, reason, detail, confidence)
+        result = _veto(decision, reason, detail, confidence)
+
+        # Post reputation signal to ERC-8004 after every decision
+        _post_guardian_signal(state, decision, reason, detail, confidence)
+
+        return result
 
     except Exception as e:
         # ── 3. Fallback: any error → VETO ────────────────────────────────
-        print(f"[Guardian] ERROR: {e} — defaulting to VETO")
-        return _veto(
+        logger.error("Guardian ERROR: %s — defaulting to VETO", e)
+        result = _veto(
             "VETOED", "uncertainty", f"Guardian evaluation failed: {str(e)}", 0.0
         )
+        _post_guardian_signal(state, "VETOED", "uncertainty", str(e), 0.0)
+        return result
+
+
+def _post_guardian_signal(
+    state: APEXState,
+    decision: str,
+    reason: str,
+    detail: str,
+    confidence: float,
+) -> None:
+    """Post reputation signal to ERC-8004 after a Guardian decision (fire-and-forget)."""
+    guardian_id = state.get("guardian_agent_id", 0)
+    scout_id = state.get("scout_agent_id", 0)
+    if guardian_id == 0 or scout_id == 0:
+        logger.info("Agent IDs not registered — skipping reputation post")
+        return
+
+    evidence = {
+        "decision": decision,
+        "reason": reason,
+        "detail": detail,
+        "confidence": confidence,
+        "volatility_index": state.get("volatility_index", 0),
+        "sentiment_score": state.get("sentiment_score", 0),
+        "opportunities_count": len(state.get("opportunities", [])),
+        "intents_count": len(state.get("ranked_intents", [])),
+    }
+
+    async def _post():
+        try:
+            from mcp_tools.erc8004_skills import post_reputation_signal
+
+            tx = await post_reputation_signal(
+                reviewer_agent_id=guardian_id,
+                subject_agent_id=scout_id,
+                decision=decision,
+                reason=reason,
+                detail=detail,
+                confidence=confidence,
+                evidence=evidence,
+            )
+            logger.info(
+                "Reputation signal posted: tx=%s score=%s",
+                tx.get("tx_hash", "")[:20],
+                tx.get("score"),
+            )
+        except Exception as e:
+            logger.warning("Failed to post reputation signal: %s", e)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_post())
+    except RuntimeError:
+        asyncio.run(_post())

@@ -19,6 +19,7 @@ load_dotenv()
 
 from agents.graph import apex_graph, _default_state, _load_agent_ids
 from mcp_tools.risk_analysis import fetch_agent_reputation, fetch_reputation_signals
+from db import get_db
 
 app = FastAPI(title="APEX", version="1.0.0")
 
@@ -93,6 +94,9 @@ async def _run_cycle() -> AsyncGenerator[str, None]:
                 cycle_log.append(
                     {"node": node_name, "timestamp": ts, "data": sse_event["data"]}
                 )
+                get_db().insert_cycle_event(
+                    node_name, ts, sse_event["data"], state.get("cycle_number", 0)
+                )
                 yield f"data: {json.dumps(sse_event)}\n\n"
 
                 # Update session metrics on guardian completion
@@ -123,6 +127,12 @@ async def _run_cycle() -> AsyncGenerator[str, None]:
             },
         }
         cycle_log.append(done_event)
+        get_db().insert_cycle_event(
+            "done",
+            done_event["timestamp"],
+            done_event["data"],
+            state.get("cycle_number", 0),
+        )
         yield f"data: {json.dumps(done_event)}\n\n"
 
     finally:
@@ -174,7 +184,7 @@ async def stream():
 
 @app.post("/cycle")
 async def trigger_cycle():
-    """Manually trigger a cycle. Client should subscribe to /stream."""
+    """Manually trigger a cycle. Events are appended to /log in real time."""
     global _cycle_running, _last_cycle_time
     if _cycle_running:
         raise HTTPException(status_code=409, detail="Cycle already running")
@@ -188,10 +198,18 @@ async def trigger_cycle():
         )
     _last_cycle_time = now
     _cycle_running = True
-    asyncio.create_task(_run_cycle())
+
+    async def _run_and_reset():
+        try:
+            async for _ in _run_cycle():
+                pass  # Consume the generator so events are yielded and logged
+        finally:
+            _cycle_running = False
+
+    asyncio.create_task(_run_and_reset())
     return {
         "status": "started",
-        "message": "Cycle started. Subscribe to /stream for real-time updates.",
+        "message": "Cycle started. Poll /log for results.",
     }
 
 

@@ -364,3 +364,39 @@ def fetch_reputation_signals(
             "Failed to fetch reputation signals for agent_id=%d: %s", agent_id, e
         )
         return []
+
+
+# --- Gas estimation ---
+
+_GAS_UNITS = {
+    ("aave", "deposit"): 180_000,
+    ("aave", "withdraw"): 150_000,
+    ("curve", "deposit"): 250_000,
+    ("curve", "withdraw"): 200_000,
+    ("compound", "deposit"): 160_000,
+    ("compound", "withdraw"): 140_000,
+}
+
+_BASE_SEPOLIA_GAS_PRICE = 0.1  # gwei
+_ETH_PRICE_USD = 3_500.0
+
+
+def estimate_gas_cost(
+    protocol: str,
+    action: str = "deposit",
+    network: str = "base",
+) -> dict:
+    """Estimate gas cost in USD for a given DeFi action.
+
+    Uses known gas unit estimates and current network gas prices.
+    Base Sepolia uses ~0.1 gwei; Ethereum mainnet uses ~20 gwei.
+    """
+    units = _GAS_UNITS.get((protocol.lower(), action.lower()), 200_000)
+    gas_price_gwei = _BASE_SEPOLIA_GAS_PRICE if network == "base" else 20.0
+    gas_usd = (units * gas_price_gwei * 1e-9) * _ETH_PRICE_USD
+
+    return {
+        "estimated_gas_usd": round(gas_usd, 2),
+        "gas_units": units,
+        "gas_price_gwei": gas_price_gwei,
+    }

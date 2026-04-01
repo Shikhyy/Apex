@@ -256,3 +256,71 @@ async def fetch_sentiment() -> float:
 
     logger.info("Returning mock sentiment score: %s", _MOCK_SENTIMENT)
     return _MOCK_SENTIMENT
+
+
+# ---------------------------------------------------------------------------
+# Compound V3 rates
+# ---------------------------------------------------------------------------
+
+_MOCK_COMPOUND_POOLS: list[YieldOpportunity] = [
+    YieldOpportunity(
+        protocol="compound",
+        pool="USDC",
+        apy=3.89,
+        tvl_usd=1_200_000_000,
+        risk_score=0.14,
+        liquidity_usd=960_000_000,
+    ),
+    YieldOpportunity(
+        protocol="compound",
+        pool="ETH",
+        apy=2.15,
+        tvl_usd=800_000_000,
+        risk_score=0.22,
+        liquidity_usd=600_000_000,
+    ),
+]
+
+
+async def fetch_compound_rates() -> list[YieldOpportunity]:
+    """Fetch Compound V3 supply rates and market data.
+
+    Tries the Compound API. Falls back to mock data on failure.
+    """
+    url = "https://api.compound.finance/api/v2/ctoken"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+
+        pools: list[YieldOpportunity] = []
+        for c in data.get("cToken", []):
+            symbol = c.get("symbol", "UNKNOWN").replace("c", "")
+            supply_rate = float(c.get("supply_rate", 0))
+            apy = supply_rate * 100 if supply_rate > 0 else 0.0
+            tvl = float(c.get("total_supply", 0))
+
+            if tvl < 500_000:
+                continue
+
+            pools.append(
+                YieldOpportunity(
+                    protocol="compound",
+                    pool=symbol,
+                    apy=round(apy, 2),
+                    tvl_usd=round(tvl, 2),
+                    risk_score=round(min(0.3, 0.1 + (1 / max(tvl, 1)) * 1e6), 2),
+                    liquidity_usd=round(tvl * 0.80, 2),
+                )
+            )
+
+        if pools:
+            logger.info("Fetched %d Compound markets from API", len(pools))
+            return pools
+
+    except Exception as exc:
+        logger.warning("Compound API failed (%s), using mock data", exc)
+
+    logger.info("Returning %d mock Compound pools", len(_MOCK_COMPOUND_POOLS))
+    return list(_MOCK_COMPOUND_POOLS)

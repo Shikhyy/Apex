@@ -1,5 +1,6 @@
 """Executor agent — on-chain and CEX trade execution."""
 
+import asyncio
 import logging
 import os
 import hashlib
@@ -49,7 +50,7 @@ def executor_node(state: APEXState) -> dict:
     """Executor node — executes approved trades via Surge + Kraken."""
     ranked_intents = state.get("ranked_intents", [])
     if not ranked_intents:
-        print("[EXECUTOR] No ranked intents available for execution.")
+        logger.info("[EXECUTOR] No ranked intents available for execution.")
         return {
             "tx_hash": "",
             "executed_protocol": "",
@@ -64,17 +65,24 @@ def executor_node(state: APEXState) -> dict:
     pool = opportunity.get("pool", "unknown")
     apy = opportunity.get("apy", 0.0)
 
-    print(f"[EXECUTOR] Executing trade: {protocol}/{pool}")
-    print(f"[EXECUTOR] Amount: ${amount_usd:,.2f} | APY: {apy:.2f}%")
+    logger.info("[EXECUTOR] Executing trade: %s/%s", protocol, pool)
+    logger.info(
+        "[EXECUTOR] Amount: $%s | APY: %s%%", f"{amount_usd:,.2f}", f"{apy:.2f}"
+    )
 
     intent_data = f"{protocol}:{pool}:{amount_usd}:{apy}:{state.get('cycle_number', 0)}"
     tx_hash = _generate_tx_hash(intent_data)
 
     try:
         result = _attempt_real_execution(opportunity, amount_usd)
-        print(f"[EXECUTOR] Execution completed in {result['execution_time']:.2f}s")
-        print(f"[EXECUTOR] Realized PnL: ${result['actual_pnl']:,.2f}")
-        print(f"[EXECUTOR] TX Hash: {tx_hash}")
+        logger.info(
+            "[EXECUTOR] Execution completed in %ss", f"{result['execution_time']:.2f}"
+        )
+        logger.info("[EXECUTOR] Realized PnL: $%s", f"{result['actual_pnl']:,.2f}")
+        logger.info("[EXECUTOR] TX Hash: %s", tx_hash)
+
+        # Post execution reputation signal
+        _post_executor_signal(state, tx_hash, result["actual_pnl"], protocol, pool)
 
         return {
             "tx_hash": tx_hash,
@@ -83,7 +91,7 @@ def executor_node(state: APEXState) -> dict:
             "execution_error": "",
         }
     except Exception as e:
-        print(f"[EXECUTOR] Execution failed: {str(e)}")
+        logger.error("[EXECUTOR] Execution failed: %s", str(e))
         return {
             "tx_hash": tx_hash,
             "executed_protocol": protocol,
@@ -115,3 +123,55 @@ def veto_node(state: APEXState) -> dict:
         "execution_error": "",
         "veto_count": state.get("veto_count", 0) + 1,
     }
+
+
+def _post_executor_signal(
+    state: APEXState,
+    tx_hash: str,
+    actual_pnl: float,
+    protocol: str,
+    pool: str,
+) -> None:
+    """Post execution result to ERC-8004 Reputation Registry (fire-and-forget)."""
+    executor_id = state.get("executor_agent_id", 0)
+    strategist_id = state.get("strategist_agent_id", 0)
+    if executor_id == 0 or strategist_id == 0:
+        logger.info(
+            "Executor/Strategist agent IDs not registered — skipping reputation post"
+        )
+        return
+
+    evidence = {
+        "tx_hash": tx_hash,
+        "actual_pnl": actual_pnl,
+        "protocol": protocol,
+        "pool": pool,
+        "cycle_number": state.get("cycle_number", 0),
+    }
+
+    confidence = min(1.0, max(0.0, 0.5 + (actual_pnl / 1000)))
+
+    async def _post():
+        try:
+            from mcp_tools.erc8004_skills import post_reputation_signal
+
+            tx = await post_reputation_signal(
+                reviewer_agent_id=executor_id,
+                subject_agent_id=strategist_id,
+                decision="APPROVED" if actual_pnl > 0 else "VETOED",
+                reason="execution_result",
+                detail=f"Executed {protocol}/{pool} with PnL ${actual_pnl:.2f}",
+                confidence=confidence,
+                evidence=evidence,
+            )
+            logger.info(
+                "Executor reputation signal posted: tx=%s", tx.get("tx_hash", "")[:20]
+            )
+        except Exception as e:
+            logger.warning("Failed to post executor reputation signal: %s", e)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_post())
+    except RuntimeError:
+        asyncio.run(_post())
