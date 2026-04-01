@@ -3,11 +3,12 @@
 import asyncio
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -31,6 +32,8 @@ app.add_middleware(
 # In-memory cycle log
 cycle_log: list[dict] = []
 _cycle_running = False
+_last_cycle_time: float = 0
+CYCLE_COOLDOWN_SECONDS = 5
 
 IDENTITY_REGISTRY = os.environ.get(
     "IDENTITY_REGISTRY_ADDRESS",
@@ -144,11 +147,18 @@ async def health():
 @app.get("/stream")
 async def stream():
     """SSE stream of agent decisions."""
-    global _cycle_running
+    global _cycle_running, _last_cycle_time
     if _cycle_running:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail="Cycle already running")
+
+    now = time.time()
+    if now - _last_cycle_time < CYCLE_COOLDOWN_SECONDS:
+        remaining = CYCLE_COOLDOWN_SECONDS - (now - _last_cycle_time)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limited. Try again in {remaining:.0f}s.",
+        )
+    _last_cycle_time = now
     _cycle_running = True
     return StreamingResponse(
         _run_cycle(),
@@ -164,6 +174,20 @@ async def stream():
 @app.post("/cycle")
 async def trigger_cycle():
     """Manually trigger a cycle. Client should subscribe to /stream."""
+    global _cycle_running, _last_cycle_time
+    if _cycle_running:
+        raise HTTPException(status_code=409, detail="Cycle already running")
+
+    now = time.time()
+    if now - _last_cycle_time < CYCLE_COOLDOWN_SECONDS:
+        remaining = CYCLE_COOLDOWN_SECONDS - (now - _last_cycle_time)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limited. Try again in {remaining:.0f}s.",
+        )
+    _last_cycle_time = now
+    _cycle_running = True
+    asyncio.create_task(_run_cycle())
     return {
         "status": "started",
         "message": "Cycle started. Subscribe to /stream for real-time updates.",
