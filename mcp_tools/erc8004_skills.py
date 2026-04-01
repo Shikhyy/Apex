@@ -1,5 +1,6 @@
 """ERC-8004 shared skills — reputation signals and agent card management."""
 
+import logging
 import json
 import os
 import base64
@@ -9,6 +10,8 @@ import httpx
 from dotenv import load_dotenv
 from eth_account import Account
 from web3 import Web3
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -162,7 +165,7 @@ async def get_agent_card(agent_id: int) -> dict[str, Any]:
         elif uri.startswith("data:"):
             encoded = uri.split(",")[1]
             return json.loads(base64.b64decode(encoded))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch agent card for agent_id=%d: %s", agent_id, e)
 
     return {"name": f"agent-{agent_id}", "active": False}
