@@ -1,5 +1,6 @@
 """Executor agent — on-chain and CEX trade execution."""
 
+import logging
 import os
 import hashlib
 import random
@@ -8,6 +9,8 @@ from agents.graph import APEXState
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def _generate_tx_hash(intent_data: str) -> str:
@@ -98,10 +101,12 @@ def veto_node(state: APEXState) -> dict:
         opportunity = vetoed_intent.get("opportunity", {})
         protocol = opportunity.get("protocol", "unknown")
         amount_usd = vetoed_intent.get("amount_usd", 0.0)
-        print(f"[VETO] Trade vetoed: {protocol} | Amount: ${amount_usd:,.2f}")
-        print(f"[VETO] Reason: {state.get('guardian_reason', 'unknown')}")
+        logger.info(
+            "[VETO] Trade vetoed: %s | Amount: $%s", protocol, f"{amount_usd:,.2f}"
+        )
+        logger.info("[VETO] Reason: %s", state.get("guardian_reason", "unknown"))
     else:
-        print("[VETO] Trade vetoed (no intent details available)")
+        logger.info("[VETO] Trade vetoed (no intent details available)")
 
     return {
         "tx_hash": "",
