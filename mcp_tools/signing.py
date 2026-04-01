@@ -136,7 +136,7 @@ def calculate_position_size(
     # Kelly criterion
     p = max(0.0, min(1.0, confidence))
     q = 1.0 - p
-    b = max(apy / 100.0, 1.0)  # floor at even odds for practical yield sizing
+    b = max(apy / 5.0, 0.5)  # normalize: 5% APY → even odds (b=1)
 
     kelly_fraction = (b * p - q) / b
     kelly_fraction = max(0.0, kelly_fraction)  # never negative
