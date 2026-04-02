@@ -10,6 +10,7 @@ This script:
 5. Prints env vars to copy to .env
 """
 
+import argparse
 import json
 import os
 import sys
@@ -61,6 +62,37 @@ AGENTS = [
         "x402Support": True,
     },
 ]
+
+
+def validate_config() -> list[str]:
+    """Validate configuration and return list of errors."""
+    errors = []
+    if not PRIVATE_KEY:
+        errors.append("APEX_PRIVATE_KEY is not set")
+    else:
+        key = PRIVATE_KEY if PRIVATE_KEY.startswith("0x") else f"0x{PRIVATE_KEY}"
+        if len(key) != 66:
+            errors.append(
+                f"APEX_PRIVATE_KEY has invalid format (expected 0x + 64 hex chars, got {len(key)} chars)"
+            )
+        else:
+            try:
+                Account.from_key(key)
+            except Exception:
+                errors.append("APEX_PRIVATE_KEY is not a valid private key")
+
+    if not PINATA_JWT:
+        errors.append("PINATA_JWT is not set (will use data URI fallback) [warning]")
+
+    if (
+        not IDENTITY_REGISTRY_ADDRESS.startswith("0x")
+        or len(IDENTITY_REGISTRY_ADDRESS) != 42
+    ):
+        errors.append(
+            f"IDENTITY_REGISTRY_ADDRESS has invalid format: {IDENTITY_REGISTRY_ADDRESS}"
+        )
+
+    return errors
 
 
 def upload_to_ipfs(payload: dict) -> str:
@@ -141,10 +173,55 @@ def register_agent(w3: Web3, account: Account, agent_uri: str) -> int:
 
 
 def main():
-    if not PRIVATE_KEY:
-        print("ERROR: APEX_PRIVATE_KEY not set in .env")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Register APEX agents on ERC-8004 Identity Registry"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate config without writing on-chain",
+    )
+    args = parser.parse_args()
 
+    # Pre-flight validation
+    print("Running pre-flight validation...")
+    errors = validate_config()
+    if errors:
+        print("\nConfiguration issues:")
+        for err in errors:
+            prefix = "✗" if "not set" in err or "invalid" in err else "⚠"
+            print(f"  {prefix} {err}")
+        if args.dry_run:
+            fatal = any("[warning]" not in e for e in errors)
+            print(
+                f"\nDry run complete — {'fix fatal errors' if fatal else 'warnings only, can proceed'} before running for real."
+            )
+            sys.exit(1 if fatal else 0)
+        else:
+            print("\nAborting. Fix errors or use --dry-run to validate config.")
+            sys.exit(1)
+    print("  ✓ Configuration valid\n")
+
+    if args.dry_run:
+        print("Dry run mode — no on-chain transactions will be sent.")
+        w3 = Web3(Web3.HTTPProvider(BASE_SEPOLIA_RPC))
+        if not w3.is_connected():
+            print(f"  ✗ Cannot connect to Base Sepolia RPC at {BASE_SEPOLIA_RPC}")
+            sys.exit(1)
+        print(f"  ✓ Base Sepolia RPC connected")
+
+        account = Account.from_key(PRIVATE_KEY)
+        print(f"  ✓ Wallet: {account.address}")
+        balance = w3.eth.get_balance(account.address)
+        print(f"  ✓ Balance: {w3.from_wei(balance, 'ether')} ETH")
+
+        print(f"\n  Would register {len(AGENTS)} agents:")
+        for agent in AGENTS:
+            print(f"    - {agent['name']} ({agent['role']})")
+        print("\nDry run complete.")
+        sys.exit(0)
+
+    # Full registration
     w3 = Web3(Web3.HTTPProvider(BASE_SEPOLIA_RPC))
     if not w3.is_connected():
         print(f"ERROR: Cannot connect to Base Sepolia RPC at {BASE_SEPOLIA_RPC}")
@@ -176,6 +253,13 @@ def main():
         except Exception as e:
             print(f"  ✗ Registration failed: {e}")
             agent_ids[name.replace("apex-", "")] = None
+            # Write partial results so progress isn't lost
+            output_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "agents.json"
+            )
+            with open(output_path, "w") as f:
+                json.dump(agent_ids, f, indent=2)
+            print(f"  Written partial results to {output_path}")
 
         print()
 
