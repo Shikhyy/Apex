@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef, useCallback } from "react"
-import type { SSEEvent, AgentInfo, AgentName } from "@/lib/types"
+import type { SSEEvent, AgentInfo, AgentName, YieldOpportunity, TradeIntent } from "@/lib/types"
 import { fetchAgents, fetchHealth, triggerCycle } from "@/lib/api"
 import MarketSignals from "@/components/dashboard/MarketSignals"
 import { PnLChart } from "@/components/dashboard/pnl-chart"
