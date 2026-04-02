@@ -10,21 +10,25 @@ APEX is a multi-agent yield optimizer where every decision is a verifiable on-ch
 ┌─────────────────────────────────────────────────────────┐
 │                   FRONTEND LAYER                        │
 │  Next.js 15  ·  React 19  ·  TypeScript  ·  Viem       │
+│  Market Signals (PRISM) · Aerodrome Pools               │
 └────────────────────────┬────────────────────────────────┘
                          │ SSE / REST
 ┌────────────────────────▼─────────────────────────────────┐
 │                   BACKEND LAYER                          │
 │  FastAPI  ·  LangGraph  ·  langchain-groq  ·  Python     │
+│  /market/prices · /market/signals · /market/aerodrome    │
 └────────────────────────┬─────────────────────────────────┘
                          │ Tool calls
 ┌────────────────────────▼─────────────────────────────────┐
 │                   SKILLS LAYER                           │
 │  FastMCP  ·  MCP Tools  ·  httpx  ·  web3.py             │
+│  PRISM API  ·  Aerodrome Subgraph                         │
 └────────────────────────┬─────────────────────────────────┘
                          │ On-chain / CEX
 ┌────────────────────────▼─────────────────────────────────┐
 │                   BLOCKCHAIN LAYER                       │
 │  ERC-8004  ·  Base Sepolia  ·  Viem  ·  Kraken CLI       │
+│  PRISM (prices/signals/risk)  ·  Aerodrome (Base pools)  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -62,6 +66,16 @@ cd frontend && npm install && npm run dev
 |---|---|
 | Identity Registry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
 | Reputation Registry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+
+## Integrations
+
+| Service | Purpose | Status |
+|---|---|---|
+| PRISM API | Multi-asset prices, AI signals, risk metrics | Integrated |
+| Aerodrome Finance | Base liquidity pool data (read-only) | Integrated |
+| Kraken CLI | Paper + live trade execution | Integrated |
+| ERC-8004 | On-chain agent identity + reputation | Integrated |
+| Surge API | On-chain trade execution (optional) | Stubbed |
 
 ## License
 
