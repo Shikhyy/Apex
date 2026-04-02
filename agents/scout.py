@@ -14,7 +14,10 @@ from mcp_tools.market_data import (
     fetch_curve_pools,
     fetch_volatility_index,
     fetch_sentiment,
+    fetch_compound_rates,
 )
+from mcp_tools.aerodrome_pools import fetch_aerodrome_pools
+from mcp_tools.prism_api import fetch_signals, fetch_risk
 from dotenv import load_dotenv
 import os
 
@@ -126,17 +129,41 @@ def _parse_llm_response(
     return filtered if filtered else raw_opps
 
 
-def _fetch_all_market_data() -> tuple[list[YieldOpportunity], float, float]:
-    """Fetch all market data sources concurrently."""
+def _fetch_all_market_data() -> tuple[
+    list[YieldOpportunity], float, float, list[dict], list[dict]
+]:
+    """Fetch all market data sources concurrently including PRISM and Aerodrome."""
 
     async def _gather():
-        aave_pools, curve_pools, vol, sentiment = await asyncio.gather(
+        (
+            aave_pools,
+            curve_pools,
+            compound_pools,
+            aero_pools,
+            vol,
+            sentiment,
+            signals,
+            risk,
+        ) = await asyncio.gather(
             fetch_aave_yields(),
             fetch_curve_pools(),
+            fetch_compound_rates(),
+            fetch_aerodrome_pools(),
             fetch_volatility_index(),
             fetch_sentiment(),
+            fetch_signals(["BTC", "ETH"]),
+            fetch_risk(["BTC", "ETH"]),
         )
-        return aave_pools, curve_pools, vol, sentiment
+        return (
+            aave_pools,
+            curve_pools,
+            compound_pools,
+            aero_pools,
+            vol,
+            sentiment,
+            signals,
+            risk,
+        )
 
     try:
         loop = asyncio.get_running_loop()
@@ -156,14 +183,38 @@ def scout_node(state: APEXState) -> dict:
     """Scout node — fetches market data and synthesizes opportunities."""
     try:
         # 1. Fetch raw market data from all sources
-        aave_pools, curve_pools, volatility_index, sentiment_score = (
-            _fetch_all_market_data()
-        )
+        (
+            aave_pools,
+            curve_pools,
+            compound_pools,
+            aero_pools,
+            volatility_index,
+            sentiment_score,
+            prism_signals,
+            prism_risk,
+        ) = _fetch_all_market_data()
 
-        # Combine all opportunities
-        raw_opportunities = aave_pools + curve_pools
+        # Combine all opportunities (now includes Aerodrome + Compound)
+        raw_opportunities = aave_pools + curve_pools + compound_pools + aero_pools
 
-        # 2. Prepare data summary for LLM
+        # 2. Build PRISM signal context for LLM
+        signal_context = ""
+        if prism_signals:
+            signal_lines = [
+                f"- {s['symbol']}: {s['signal']} (confidence: {s['confidence']})"
+                for s in prism_signals
+            ]
+            signal_context = "\nPRISM AI Signals:\n" + "\n".join(signal_lines)
+
+        risk_context = ""
+        if prism_risk:
+            risk_lines = [
+                f"- {r['symbol']}: vol={r['volatility']}, risk={r['risk_score']}"
+                for r in prism_risk
+            ]
+            risk_context = "\nPRISM Risk Metrics:\n" + "\n".join(risk_lines)
+
+        # 3. Prepare data summary for LLM
         opp_summary = json.dumps(
             [_opportunity_to_dict(op) for op in raw_opportunities],
             indent=2,
@@ -173,12 +224,15 @@ def scout_node(state: APEXState) -> dict:
             f"Current market data:\n\n"
             f"Volatility Index: {volatility_index}\n"
             f"Sentiment Score: {sentiment_score}\n"
+            f"{signal_context}\n"
+            f"{risk_context}\n"
             f"\nAvailable yield opportunities:\n{opp_summary}\n\n"
             f"Synthesize these into a ranked opportunity list. "
+            f"Consider PRISM signals when scoring. "
             f"Return ONLY valid JSON with an 'opportunities' array."
         )
 
-        # 3. Query LLM for synthesis
+        # 4. Query LLM for synthesis
         llm_text = ""
         try:
             messages = [
@@ -194,11 +248,10 @@ def scout_node(state: APEXState) -> dict:
         except Exception as llm_err:
             logger.warning("LLM call failed (%s), using raw data fallback", llm_err)
 
-        # 4. Parse and filter opportunities
+        # 5. Parse and filter opportunities
         if llm_text:
             opportunities = _parse_llm_response(llm_text, raw_opportunities)
         else:
-            # Fallback: use raw market data with basic filtering
             opportunities = []
             for opp in raw_opportunities:
                 if opp["liquidity_usd"] < 500_000:
@@ -208,14 +261,19 @@ def scout_node(state: APEXState) -> dict:
                     o["risk_score"] = 0.95
                 opportunities.append(YieldOpportunity(**o))
 
-        # 5. Build reasoning summary
+        # 6. Build reasoning summary (now includes PRISM context)
         if opportunities:
             top_opp = opportunities[0]
+            signal_summary = ""
+            if prism_signals:
+                bullish = sum(1 for s in prism_signals if s["signal"] == "BULLISH")
+                bearish = sum(1 for s in prism_signals if s["signal"] == "BEARISH")
+                signal_summary = f" PRISM: {bullish} bullish, {bearish} bearish."
             reasoning = (
-                f"Found {len(opportunities)} opportunities. "
-                f"Best: {top_opp['protocol']}/{top_opp['pool']} at {top_opp['apy']}% APY "
+                f"Found {len(opportunities)} opportunities across Aave, Curve, Compound, and Aerodrome."
+                f" Best: {top_opp['protocol']}/{top_opp['pool']} at {top_opp['apy']}% APY "
                 f"(risk: {top_opp['risk_score']}). "
-                f"Market vol: {volatility_index}, sentiment: {sentiment_score}."
+                f"Market vol: {volatility_index}, sentiment: {sentiment_score}.{signal_summary}"
             )
         else:
             reasoning = (
