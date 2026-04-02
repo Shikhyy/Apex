@@ -8,6 +8,7 @@ from mcp_tools.execution import (
     kraken_paper_status,
     kraken_fetch_ticker,
 )
+from mcp_tools.aerodrome_pools import fetch_aerodrome_pools
 from mcp_tools.market_data import (
     fetch_aave_yields,
     fetch_curve_pools,
@@ -36,6 +37,7 @@ __all__ = [
     "execute_surge_intent",
     "fetch_agent_reputation",
     "fetch_aave_yields",
+    "fetch_aerodrome_pools",
     "fetch_curve_pools",
     "fetch_sentiment",
     "fetch_volatility_index",
