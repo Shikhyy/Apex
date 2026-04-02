@@ -68,3 +68,38 @@ export interface LogResponse {
     data: Record<string, unknown>
   }[]
 }
+
+export interface PrismPrice {
+  symbol: string
+  price: number
+  change_24h: number
+  timestamp: string
+}
+
+export interface PrismSignal {
+  symbol: string
+  signal: "BULLISH" | "BEARISH" | "NEUTRAL"
+  confidence: number
+  reasoning: string
+}
+
+export interface AerodromePool {
+  pool: string
+  protocol: string
+  tvl_usd: number
+  apy: number
+  risk_score: number
+  liquidity_usd: number
+}
+
+export interface MarketPricesResponse {
+  prices: PrismPrice[]
+}
+
+export interface MarketSignalsResponse {
+  signals: PrismSignal[]
+}
+
+export interface AerodromePoolsResponse {
+  pools: AerodromePool[]
+}

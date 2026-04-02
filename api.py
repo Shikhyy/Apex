@@ -258,3 +258,42 @@ async def get_reputation(agent_id: int):
     result = fetch_agent_reputation(agent_id)
     result["signals"] = fetch_reputation_signals(agent_id)
     return result
+
+
+@app.get("/market/prices")
+async def get_market_prices():
+    """Fetch real-time prices from PRISM API."""
+    from mcp_tools.prism_api import fetch_prices
+
+    prices = await fetch_prices(["BTC", "ETH", "USDC", "AERO"])
+    return {"prices": prices}
+
+
+@app.get("/market/signals")
+async def get_market_signals_endpoint():
+    """Fetch AI trading signals from PRISM API."""
+    from mcp_tools.prism_api import fetch_signals
+
+    signals = await fetch_signals(["BTC", "ETH", "AERO"])
+    return {"signals": signals}
+
+
+@app.get("/market/aerodrome-pools")
+async def get_aerodrome_pools_endpoint():
+    """Fetch top Aerodrome liquidity pools on Base."""
+    from mcp_tools.aerodrome_pools import fetch_aerodrome_pools
+
+    pools = await fetch_aerodrome_pools()
+    return {
+        "pools": [
+            {
+                "pool": p["pool"],
+                "protocol": p["protocol"],
+                "tvl_usd": p["tvl_usd"],
+                "apy": p["apy"],
+                "risk_score": p["risk_score"],
+                "liquidity_usd": p["liquidity_usd"],
+            }
+            for p in pools
+        ]
+    }

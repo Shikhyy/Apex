@@ -3,6 +3,9 @@
 import { useEffect, useState, useRef, useCallback } from "react"
 import type { SSEEvent, AgentInfo, AgentName } from "@/lib/types"
 import { fetchAgents, fetchHealth, triggerCycle } from "@/lib/api"
+import MarketSignals from "@/components/dashboard/MarketSignals"
+import { PnLChart } from "@/components/dashboard/pnl-chart"
+import { OpportunitiesTable } from "@/components/dashboard/opportunities-table"
 
 const AGENT_COLORS: Record<AgentName, string> = {
   scout: "#60a5fa",
@@ -316,6 +319,7 @@ export default function Home() {
   const [vetoCount, setVetoCount] = useState(0)
   const [approvalCount, setApprovalCount] = useState(0)
   const [volatilityIndex, setVolatilityIndex] = useState(0)
+  const [sentimentScore, setSentimentScore] = useState(0)
   const [activeNode, setActiveNode] = useState<string | null>(null)
   const [decision, setDecision] = useState<"APPROVED" | "VETOED" | null>(null)
   const [txHash, setTxHash] = useState<string | undefined>()
@@ -323,6 +327,10 @@ export default function Home() {
   const [feedItems, setFeedItems] = useState<EventFeedItem[]>([])
   const [running, setRunning] = useState(false)
   const [backendOk, setBackendOk] = useState(false)
+  const [opportunities, setOpportunities] = useState<YieldOpportunity[]>([])
+  const [intents, setIntents] = useState<TradeIntent[]>([])
+  const [pnlHistory, setPnlHistory] = useState<{ cycle: number; pnl: number; cumulative: number }[]>([])
+  const [rightPanelTab, setRightPanelTab] = useState<"market" | "events">("market")
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
@@ -353,9 +361,18 @@ export default function Home() {
         setActiveNode("scout")
         setAgentStatuses((p) => ({ ...p, scout: "running" }))
         if (evt.data.volatility_index != null) setVolatilityIndex(evt.data.volatility_index as number)
+        if (evt.data.sentiment_score != null) setSentimentScore(evt.data.sentiment_score as number)
+        if (evt.data.opportunities) {
+          const opps = evt.data.opportunities as YieldOpportunity[]
+          setOpportunities(opps)
+        }
       } else if (evt.node === "strategist") {
         setActiveNode("strategist")
         setAgentStatuses((p) => ({ ...p, scout: "ready", strategist: "running" }))
+        if (evt.data.ranked_intents) {
+          const ints = evt.data.ranked_intents as TradeIntent[]
+          setIntents(ints)
+        }
       } else if (evt.node === "guardian") {
         setActiveNode("guardian")
         setAgentStatuses((p) => ({ ...p, strategist: "ready", guardian: "running" }))
@@ -394,6 +411,17 @@ export default function Home() {
         if (evt.data.session_pnl != null) setSessionPnl(evt.data.session_pnl as number)
         if (evt.data.veto_count != null) setVetoCount(evt.data.veto_count as number)
         if (evt.data.approval_count != null) setApprovalCount(evt.data.approval_count as number)
+        const cycleNum = evt.data.cycle_number as number | undefined
+        const pnl = (evt.data.session_pnl as number) ?? 0
+        if (cycleNum) {
+          setPnlHistory((prev) => {
+            const existing = prev.find((p) => p.cycle === cycleNum)
+            if (existing) {
+              return prev.map((p) => p.cycle === cycleNum ? { ...p, pnl, cumulative: pnl } : p)
+            }
+            return [...prev, { cycle: cycleNum, pnl, cumulative: pnl }]
+          })
+        }
       }
     } catch {
       // ignore parse errors
@@ -550,6 +578,68 @@ export default function Home() {
             <StatTile label="Vol Index" value={volatilityIndex.toFixed(1)} color="var(--guardian)" />
           </div>
 
+          {/* Market Gauges */}
+          <div
+            style={{
+              marginTop: 16,
+              padding: 14,
+              background: "var(--bg-deep)",
+              border: "1px solid var(--border-default)",
+              borderRadius: 4,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--text-muted)",
+                textTransform: "uppercase",
+                marginBottom: 12,
+                letterSpacing: 1,
+              }}
+            >
+              Market
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-secondary)" }}>Volatility</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: volatilityIndex > 65 ? "var(--vetoed)" : "var(--guardian)" }}>
+                  {volatilityIndex.toFixed(1)}/100
+                </span>
+              </div>
+              <div style={{ height: 4, background: "var(--bg-overlay)", borderRadius: 2, overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${Math.min(100, volatilityIndex)}%`,
+                    height: "100%",
+                    background: volatilityIndex > 65 ? "var(--vetoed)" : volatilityIndex > 40 ? "var(--guardian)" : "var(--executor)",
+                    borderRadius: 2,
+                    transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+                  }}
+                />
+              </div>
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-secondary)" }}>Sentiment</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: sentimentScore >= 0 ? "var(--approved)" : "var(--vetoed)" }}>
+                  {sentimentScore >= 0 ? "+" : ""}{sentimentScore.toFixed(2)}
+                </span>
+              </div>
+              <div style={{ height: 4, background: "var(--bg-overlay)", borderRadius: 2, overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${((sentimentScore + 1) / 2) * 100}%`,
+                    height: "100%",
+                    background: sentimentScore >= 0 ? "var(--approved)" : "var(--vetoed)",
+                    borderRadius: 2,
+                    transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
           {!backendOk && (
             <div
               style={{
@@ -574,7 +664,51 @@ export default function Home() {
 
           <DecisionBanner decision={decision} txHash={txHash} />
 
-          <div style={{ marginTop: 12 }}>
+          {/* PnL Chart */}
+          <div style={{ marginTop: 20 }}>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                marginBottom: 12,
+              }}
+            >
+              Cumulative PnL
+            </div>
+            <div
+              style={{
+                background: "var(--bg-deep)",
+                border: "1px solid var(--border-default)",
+                borderRadius: 4,
+                padding: 16,
+              }}
+            >
+              <PnLChart data={pnlHistory} height={180} />
+            </div>
+          </div>
+
+          {/* Opportunities Table */}
+          <div style={{ marginTop: 20 }}>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                marginBottom: 12,
+              }}
+            >
+              Opportunities & Intents
+            </div>
+            <OpportunitiesTable opportunities={opportunities} intents={intents} />
+          </div>
+
+          {/* Veto Log */}
+          <div style={{ marginTop: 20 }}>
             <div
               style={{
                 fontFamily: "var(--font-mono)",
@@ -620,32 +754,76 @@ export default function Home() {
             overflowY: "auto",
           }}
         >
-          <div
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              color: "var(--text-muted)",
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              marginBottom: 16,
-            }}
-          >
-            Live Event Feed
-          </div>
-          {feedItems.length === 0 ? (
-            <div
+          {/* Tab Bar */}
+          <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+            <button
+              onClick={() => setRightPanelTab("market")}
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                color: "var(--text-muted)",
-                textAlign: "center",
-                padding: 40,
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                padding: "6px 12px",
+                borderRadius: 3,
+                border: "none",
+                background: rightPanelTab === "market" ? "var(--scout)" : "var(--bg-overlay)",
+                color: rightPanelTab === "market" ? "#fff" : "var(--text-muted)",
+                cursor: "pointer",
               }}
             >
-              Waiting for events...
-            </div>
-          ) : (
-            feedItems.map((item, i) => <EventFeedItemComponent key={`${item.timestamp}-${i}`} item={item} />)
+              Market
+            </button>
+            <button
+              onClick={() => setRightPanelTab("events")}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                padding: "6px 12px",
+                borderRadius: 3,
+                border: "none",
+                background: rightPanelTab === "events" ? "var(--scout)" : "var(--bg-overlay)",
+                color: rightPanelTab === "events" ? "#fff" : "var(--text-muted)",
+                cursor: "pointer",
+              }}
+            >
+              Events
+            </button>
+          </div>
+
+          {rightPanelTab === "market" && <MarketSignals />}
+
+          {rightPanelTab === "events" && (
+            <>
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  marginBottom: 16,
+                }}
+              >
+                Live Event Feed
+              </div>
+              {feedItems.length === 0 ? (
+                <div
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    textAlign: "center",
+                    padding: 40,
+                  }}
+                >
+                  Waiting for events...
+                </div>
+              ) : (
+                feedItems.map((item, i) => <EventFeedItemComponent key={`${item.timestamp}-${i}`} item={item} />)
+              )}
+            </>
           )}
         </aside>
       </div>
