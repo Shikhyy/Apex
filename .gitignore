@@ -43,3 +43,7 @@ Thumbs.db
 
 # Documentation (keep locally, never commit)
 docs/
+
+# Solidity / Foundry
+contracts/cache/
+contracts/out/
