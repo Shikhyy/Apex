@@ -2,12 +2,23 @@ from mcp_tools.execution import (
     calculate_realized_pnl,
     execute_kraken_order,
     execute_surge_intent,
+    kraken_paper_init,
+    kraken_paper_buy,
+    kraken_paper_sell,
+    kraken_paper_status,
+    kraken_fetch_ticker,
 )
 from mcp_tools.market_data import (
     fetch_aave_yields,
     fetch_curve_pools,
     fetch_sentiment,
     fetch_volatility_index,
+)
+from mcp_tools.prism_api import (
+    resolve_asset,
+    fetch_prices,
+    fetch_signals,
+    fetch_risk,
 )
 from mcp_tools.risk_analysis import (
     calculate_projected_drawdown,
@@ -29,4 +40,13 @@ __all__ = [
     "fetch_sentiment",
     "fetch_volatility_index",
     "generate_eip712_intent",
+    "kraken_paper_init",
+    "kraken_paper_buy",
+    "kraken_paper_sell",
+    "kraken_paper_status",
+    "kraken_fetch_ticker",
+    "resolve_asset",
+    "fetch_prices",
+    "fetch_signals",
+    "fetch_risk",
 ]
