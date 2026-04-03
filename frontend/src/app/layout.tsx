@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Bebas_Neue, DM_Mono, DM_Sans } from "next/font/google";
 import "@/styles/globals.css";
+import { Providers } from "./providers";
 
 const bebas = Bebas_Neue({
   weight: "400",
@@ -40,7 +41,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${bebas.variable} ${dmMono.variable} ${dmSans.variable}`}>
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

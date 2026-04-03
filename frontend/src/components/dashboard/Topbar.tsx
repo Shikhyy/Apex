@@ -1,5 +1,7 @@
 "use client";
 
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+
 interface TopbarProps {
   title: string;
   connected: boolean;
@@ -83,6 +85,8 @@ export default function Topbar({ title, connected, onRunCycle }: TopbarProps) {
             Run Cycle
           </button>
         )}
+
+        <ConnectButton />
       </div>
     </header>
   );
