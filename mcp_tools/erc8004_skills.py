@@ -79,20 +79,16 @@ async def post_reputation_signal(
     abi = [
         {
             "inputs": [
-                {
-                    "internalType": "uint256",
-                    "name": "reviewerAgentId",
-                    "type": "uint256",
-                },
-                {
-                    "internalType": "uint256",
-                    "name": "subjectAgentId",
-                    "type": "uint256",
-                },
-                {"internalType": "string", "name": "evidenceURI", "type": "string"},
-                {"internalType": "int256", "name": "score", "type": "int256"},
+                {"internalType": "uint256", "name": "agentId", "type": "uint256"},
+                {"internalType": "int128", "name": "value", "type": "int128"},
+                {"internalType": "uint8", "name": "valueDecimals", "type": "uint8"},
+                {"internalType": "string", "name": "tag1", "type": "string"},
+                {"internalType": "string", "name": "tag2", "type": "string"},
+                {"internalType": "string", "name": "endpoint", "type": "string"},
+                {"internalType": "string", "name": "feedbackURI", "type": "string"},
+                {"internalType": "bytes32", "name": "feedbackHash", "type": "bytes32"},
             ],
-            "name": "submitFeedback",
+            "name": "giveFeedback",
             "outputs": [],
             "stateMutability": "nonpayable",
             "type": "function",
@@ -105,11 +101,16 @@ async def post_reputation_signal(
     )
 
     nonce = w3.eth.get_transaction_count(account.address)
-    tx = contract.functions.submitFeedback(
-        reviewer_agent_id,
+    feedback_hash = Web3.keccak(text=evidence_uri)
+    tx = contract.functions.giveFeedback(
         subject_agent_id,
+        int(score),
+        0,
+        decision,
+        reason,
+        "",
         evidence_uri,
-        score,
+        feedback_hash,
     ).build_transaction(
         {
             "from": account.address,

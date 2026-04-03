@@ -267,3 +267,89 @@ def calculate_realized_pnl(
     """
 
     return exit_value - entry_value - gas_cost
+
+
+# ---------------------------------------------------------------------------
+# Kraken Paper Trading
+# ---------------------------------------------------------------------------
+
+_paper_portfolio: dict = {}
+
+
+def kraken_paper_init(balance_usd: float = 100_000.0) -> dict:
+    """Initialize a paper trading portfolio."""
+    global _paper_portfolio
+    _paper_portfolio = {
+        "usd": balance_usd,
+        "positions": {},
+        "trades": [],
+    }
+    logger.info("Paper trading initialized with $%s", f"{balance_usd:,.2f}")
+    return {"status": "initialized", "balance_usd": balance_usd}
+
+
+def kraken_paper_buy(pair: str, amount_usd: float, price: float) -> dict:
+    """Execute a paper buy order."""
+    if not _paper_portfolio:
+        kraken_paper_init()
+    if _paper_portfolio["usd"] < amount_usd:
+        return {"status": "failed", "error": "Insufficient USD balance"}
+    quantity = amount_usd / price
+    _paper_portfolio["usd"] -= amount_usd
+    _paper_portfolio["positions"][pair] = (
+        _paper_portfolio["positions"].get(pair, 0) + quantity
+    )
+    trade = {
+        "side": "buy",
+        "pair": pair,
+        "amount_usd": amount_usd,
+        "price": price,
+        "quantity": quantity,
+    }
+    _paper_portfolio["trades"].append(trade)
+    return {"status": "success", "quantity": round(quantity, 6), "price": price}
+
+
+def kraken_paper_sell(pair: str, quantity: float, price: float) -> dict:
+    """Execute a paper sell order."""
+    if not _paper_portfolio:
+        kraken_paper_init()
+    held = _paper_portfolio["positions"].get(pair, 0)
+    if held < quantity:
+        return {"status": "failed", "error": f"Insufficient {pair} balance"}
+    amount_usd = quantity * price
+    _paper_portfolio["positions"][pair] = held - quantity
+    _paper_portfolio["usd"] += amount_usd
+    trade = {
+        "side": "sell",
+        "pair": pair,
+        "quantity": quantity,
+        "price": price,
+        "amount_usd": amount_usd,
+    }
+    _paper_portfolio["trades"].append(trade)
+    return {"status": "success", "amount_usd": round(amount_usd, 2), "price": price}
+
+
+def kraken_paper_status() -> dict:
+    """Return current paper portfolio status."""
+    if not _paper_portfolio:
+        return {"status": "not_initialized"}
+    return {
+        "usd_balance": round(_paper_portfolio["usd"], 2),
+        "positions": {k: round(v, 6) for k, v in _paper_portfolio["positions"].items()},
+        "trade_count": len(_paper_portfolio["trades"]),
+    }
+
+
+def kraken_fetch_ticker(pair: str) -> dict:
+    """Fetch a mock ticker price for a trading pair."""
+    mock_prices = {
+        "ETH/USD": 3500.0,
+        "BTC/USD": 95000.0,
+        "SOL/USD": 180.0,
+        "USDC/USD": 1.0,
+        "AERO/USD": 1.42,
+    }
+    price = mock_prices.get(pair, 2000.0)
+    return {"pair": pair, "price": price, "volume_24h": 1_000_000.0}

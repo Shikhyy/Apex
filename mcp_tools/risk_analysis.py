@@ -19,9 +19,8 @@ logger = logging.getLogger(__name__)
 # --- Constants ---
 
 BASE_SEPOLIA_RPC = "https://sepolia.base.org"
-DEFAULT_REGISTRY_ADDRESS = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63"
+DEFAULT_REGISTRY_ADDRESS = "0xeC6a0e1aB27882e222200F89D17F76ED8413C9268"
 
-# ERC-8004 Reputation Registry ABI (minimal — only what we need)
 REGISTRY_ABI = [
     {
         "anonymous": False,
@@ -29,31 +28,127 @@ REGISTRY_ABI = [
             {
                 "indexed": True,
                 "internalType": "uint256",
-                "name": "reviewerAgentId",
+                "name": "agentId",
                 "type": "uint256",
             },
             {
                 "indexed": True,
-                "internalType": "uint256",
-                "name": "subjectAgentId",
-                "type": "uint256",
+                "internalType": "address",
+                "name": "clientAddress",
+                "type": "address",
             },
             {
                 "indexed": False,
+                "internalType": "uint64",
+                "name": "feedbackIndex",
+                "type": "uint64",
+            },
+            {
+                "indexed": False,
+                "internalType": "int128",
+                "name": "value",
+                "type": "int128",
+            },
+            {
+                "indexed": False,
+                "internalType": "uint8",
+                "name": "valueDecimals",
+                "type": "uint8",
+            },
+            {
+                "indexed": True,
                 "internalType": "string",
-                "name": "evidenceURI",
+                "name": "indexedTag1",
                 "type": "string",
             },
             {
                 "indexed": False,
-                "internalType": "int256",
-                "name": "score",
-                "type": "int256",
+                "internalType": "string",
+                "name": "tag1",
+                "type": "string",
+            },
+            {
+                "indexed": False,
+                "internalType": "string",
+                "name": "tag2",
+                "type": "string",
+            },
+            {
+                "indexed": False,
+                "internalType": "string",
+                "name": "endpoint",
+                "type": "string",
+            },
+            {
+                "indexed": False,
+                "internalType": "string",
+                "name": "feedbackURI",
+                "type": "string",
+            },
+            {
+                "indexed": False,
+                "internalType": "bytes32",
+                "name": "feedbackHash",
+                "type": "bytes32",
             },
         ],
         "name": "FeedbackSubmitted",
         "type": "event",
-    }
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "agentId", "type": "uint256"},
+            {"internalType": "address", "name": "clientAddress", "type": "address"},
+            {"internalType": "uint64", "name": "feedbackIndex", "type": "uint64"},
+        ],
+        "name": "readFeedback",
+        "outputs": [
+            {"internalType": "int128", "name": "value", "type": "int128"},
+            {"internalType": "uint8", "name": "valueDecimals", "type": "uint8"},
+            {"internalType": "string", "name": "tag1", "type": "string"},
+            {"internalType": "string", "name": "tag2", "type": "string"},
+            {"internalType": "bool", "name": "isRevoked", "type": "bool"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "agentId", "type": "uint256"},
+            {
+                "internalType": "address[]",
+                "name": "clientAddresses",
+                "type": "address[]",
+            },
+            {"internalType": "string", "name": "tag1", "type": "string"},
+            {"internalType": "string", "name": "tag2", "type": "string"},
+        ],
+        "name": "getSummary",
+        "outputs": [
+            {"internalType": "uint64", "name": "count", "type": "uint64"},
+            {"internalType": "int128", "name": "summaryValue", "type": "int128"},
+            {"internalType": "uint8", "name": "summaryValueDecimals", "type": "uint8"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [{"internalType": "uint256", "name": "agentId", "type": "uint256"}],
+        "name": "getClients",
+        "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"},
+            {"internalType": "address", "name": "", "type": "address"},
+        ],
+        "name": "feedbackCount",
+        "outputs": [{"internalType": "uint64", "name": "", "type": "uint64"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
 ]
 
 # Known protocol audit status lookup
@@ -231,7 +326,7 @@ def fetch_agent_reputation(
         # Filter events where this agent was the subject of feedback
         event_filter = registry.events.FeedbackSubmitted.create_filter(
             from_block=0,
-            argument_filters={"subjectAgentId": agent_id},
+            argument_filters={"agentId": agent_id},
         )
 
         events = event_filter.get_all_entries()
@@ -242,9 +337,10 @@ def fetch_agent_reputation(
 
         scores = []
         for event in events:
-            score = event["args"]["score"]
-            # Clamp to valid range [-100, +100]
-            score = max(-100, min(100, int(score)))
+            score = event["args"]["value"]
+            decimals = event["args"]["valueDecimals"]
+            if decimals > 0:
+                score = score / (10**decimals)
             scores.append(score)
 
         avg_score = sum(scores) / len(scores)
@@ -319,10 +415,12 @@ def fetch_reputation_signals(
     """Fetch individual reputation signals (FeedbackSubmitted events) for an agent.
 
     Returns a list of signal dicts, each with:
-    - reviewer_agent_id (int)
-    - subject_agent_id (int)
-    - evidence_uri (str)
-    - score (int)
+    - agent_id (int)
+    - client_address (str)
+    - feedback_index (int)
+    - value (int)
+    - tag1 (str)
+    - feedback_uri (str)
     - block_number (int)
     """
     if registry_address is None:
@@ -341,7 +439,7 @@ def fetch_reputation_signals(
 
         event_filter = registry.events.FeedbackSubmitted.create_filter(
             from_block=0,
-            argument_filters={"subjectAgentId": agent_id},
+            argument_filters={"agentId": agent_id},
         )
 
         events = event_filter.get_all_entries()
@@ -349,10 +447,12 @@ def fetch_reputation_signals(
         for event in events:
             signals.append(
                 {
-                    "reviewer_agent_id": event["args"]["reviewerAgentId"],
-                    "subject_agent_id": event["args"]["subjectAgentId"],
-                    "evidence_uri": event["args"]["evidenceURI"],
-                    "score": event["args"]["score"],
+                    "agent_id": event["args"]["agentId"],
+                    "client_address": event["args"]["clientAddress"],
+                    "feedback_index": event["args"]["feedbackIndex"],
+                    "value": event["args"]["value"],
+                    "tag1": event["args"]["tag1"],
+                    "feedback_uri": event["args"]["feedbackURI"],
                     "block_number": event["blockNumber"],
                 }
             )

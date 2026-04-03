@@ -139,7 +139,32 @@ def register_agent(w3: Web3, account: Account, agent_uri: str) -> int:
                     "type": "uint256",
                 },
             ],
-            "name": "AgentRegistered",
+            "name": "Registered",
+            "type": "event",
+        },
+        {
+            "anonymous": False,
+            "inputs": [
+                {
+                    "indexed": True,
+                    "internalType": "address",
+                    "name": "from",
+                    "type": "address",
+                },
+                {
+                    "indexed": True,
+                    "internalType": "address",
+                    "name": "to",
+                    "type": "address",
+                },
+                {
+                    "indexed": True,
+                    "internalType": "uint256",
+                    "name": "tokenId",
+                    "type": "uint256",
+                },
+            ],
+            "name": "Transfer",
             "type": "event",
         },
     ]
@@ -162,14 +187,17 @@ def register_agent(w3: Web3, account: Account, agent_uri: str) -> int:
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
 
-    # Extract agentId from logs
-    logs = contract.events.AgentRegistered().process_receipt(receipt)
-    if logs:
-        return logs[0]["args"]["agentId"]
+    if receipt.status != 1:
+        raise Exception(f"Transaction reverted: {receipt}")
 
-    # Fallback: try to read via tokenURI
-    print("  ⚠ Could not parse agentId from logs — trying tokenURI lookup")
-    return 0
+    # Extract agentId from Transfer event (tokenId = agentId)
+    transfer_event = contract.events.Transfer().process_receipt(receipt)
+    if transfer_event:
+        return transfer_event[0]["args"]["tokenId"]
+
+    # Fallback: read totalAgents
+    total = contract.functions.totalAgents().call()
+    return total - 1
 
 
 def main():

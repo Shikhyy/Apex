@@ -6,7 +6,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,7 @@ load_dotenv()
 
 from agents.graph import apex_graph, _default_state, _load_agent_ids
 from mcp_tools.risk_analysis import fetch_agent_reputation, fetch_reputation_signals
+from mcp_tools.social import auto_share_cycle, get_social_stats
 from db import get_db
 
 app = FastAPI(title="APEX", version="1.0.0")
@@ -215,8 +216,13 @@ async def trigger_cycle():
 
 @app.get("/log")
 async def get_log():
-    """Return the in-memory cycle log."""
-    return {"cycles": cycle_log}
+    """Return the persisted cycle log from Supabase."""
+    try:
+        db = get_db()
+        cycles = db.get_cycle_log(limit=100)
+        return {"cycles": cycles}
+    except Exception:
+        return {"cycles": cycle_log}
 
 
 @app.get("/agents")
@@ -297,3 +303,257 @@ async def get_aerodrome_pools_endpoint():
             for p in pools
         ]
     }
+
+
+class ShareCycleRequest(BaseModel):
+    cycle_data: Optional[dict] = None
+
+
+@app.post("/social/share-cycle")
+async def share_cycle(request: Optional[ShareCycleRequest] = None):
+    """Trigger auto-sharing of cycle results to social platforms."""
+    cycle_data = request.cycle_data if request else None
+
+    if cycle_data is None:
+        try:
+            db = get_db()
+            cycles = db.get_cycle_log(limit=1)
+            if cycles:
+                cycle_data = cycles[-1]
+        except Exception:
+            pass
+
+    if cycle_data is None:
+        last = cycle_log[-1] if cycle_log else None
+        if last and last.get("node") == "done":
+            cycle_data = last.get("data", {})
+        else:
+            cycle_data = {
+                "cycle_number": 0,
+                "session_pnl": 0.0,
+                "veto_count": 0,
+                "approval_count": 0,
+            }
+
+    result = auto_share_cycle(cycle_data)
+    return result
+
+
+@app.get("/social/stats")
+async def social_stats():
+    """Return social engagement stats."""
+    return get_social_stats()
+
+
+# ---------------------------------------------------------------------------
+# Kraken market data endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/market/kraken-ticker")
+async def get_kraken_ticker(pairs: str = "BTCUSD,ETHUSD"):
+    """Fetch live Kraken ticker data for specified pairs."""
+    import subprocess
+
+    pair_list = [p.strip() for p in pairs.split(",")]
+    tickers = []
+    for pair in pair_list:
+        try:
+            kraken_bin = subprocess.run(
+                ["kraken", "ticker", pair],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if kraken_bin.returncode == 0:
+                import json as _json
+
+                tickers.append(_json.loads(kraken_bin.stdout))
+            else:
+                from mcp_tools.execution import kraken_fetch_ticker
+
+                tickers.append(kraken_fetch_ticker(pair))
+        except Exception as e:
+            from mcp_tools.execution import kraken_fetch_ticker
+
+            tickers.append(kraken_fetch_ticker(pair))
+    return {"tickers": tickers}
+
+
+@app.get("/market/kraken-orderbook")
+async def get_kraken_orderbook(pair: str = "BTCUSD", count: int = 10):
+    """Fetch Kraken order book for a trading pair."""
+    import httpx as _httpx
+
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.kraken.com/0/public/Depth",
+                params={"pair": pair, "count": count},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data and data["error"]:
+                raise HTTPException(status_code=400, detail=str(data["error"]))
+            return {"pair": pair, "orderbook": data.get("result", {})}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to fetch orderbook: {str(e)}"
+        )
+
+
+@app.get("/market/kraken-ohlc")
+async def get_kraken_ohlc(pair: str = "BTCUSD", interval: int = 60):
+    """Fetch OHLC candles from Kraken."""
+    import httpx as _httpx
+
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.kraken.com/0/public/OHLC",
+                params={"pair": pair, "interval": interval},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data and data["error"]:
+                raise HTTPException(status_code=400, detail=str(data["error"]))
+            result = data.get("result", {})
+            candles = []
+            for key, values in result.items():
+                if key == "last":
+                    continue
+                for v in values:
+                    candles.append(
+                        {
+                            "time": int(v[0]),
+                            "open": float(v[1]),
+                            "high": float(v[2]),
+                            "low": float(v[3]),
+                            "close": float(v[4]),
+                            "vwap": float(v[5]),
+                            "volume": float(v[6]),
+                            "count": int(v[7]),
+                        }
+                    )
+            return {"pair": pair, "interval": interval, "candles": candles}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to fetch OHLC data: {str(e)}"
+        )
+
+
+@app.get("/market/compound-rates")
+async def get_compound_rates():
+    """Fetch Compound V3 supply rates."""
+    from mcp_tools.market_data import fetch_compound_rates
+
+    rates = await fetch_compound_rates()
+    return {
+        "rates": [
+            {
+                "protocol": r["protocol"],
+                "pool": r["pool"],
+                "apy": r["apy"],
+                "tvl_usd": r["tvl_usd"],
+                "risk_score": r["risk_score"],
+                "liquidity_usd": r["liquidity_usd"],
+            }
+            for r in rates
+        ]
+    }
+
+
+@app.get("/market/volatility")
+async def get_volatility():
+    """Fetch market volatility index (0-100 scale)."""
+    from mcp_tools.market_data import fetch_volatility_index
+
+    vol = await fetch_volatility_index()
+    return {"volatility_index": vol}
+
+
+@app.get("/market/sentiment")
+async def get_sentiment():
+    """Fetch market sentiment score (-1.0 to +1.0)."""
+    from mcp_tools.market_data import fetch_sentiment
+
+    sentiment = await fetch_sentiment()
+    return {"sentiment_score": sentiment}
+
+
+# ---------------------------------------------------------------------------
+# Paper trading endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/paper/status")
+async def get_paper_status():
+    """Get Kraken paper trading account status."""
+    from mcp_tools.execution import kraken_paper_status
+
+    status = kraken_paper_status()
+    return status
+
+
+@app.get("/paper/history")
+async def get_paper_history():
+    """Get paper trade history."""
+    from mcp_tools.execution import _paper_portfolio
+
+    trades = _paper_portfolio.get("trades", []) if _paper_portfolio else []
+    return {"trades": trades, "total_trades": len(trades)}
+
+
+@app.post("/paper/buy")
+async def paper_buy(pair: str = "BTCUSD", volume: float = 0.001):
+    """Place a paper buy order."""
+    from mcp_tools.execution import (
+        kraken_fetch_ticker,
+        kraken_paper_buy,
+        kraken_paper_init,
+    )
+
+    try:
+        ticker = kraken_fetch_ticker(pair)
+        price = ticker.get("price", 0)
+        if price <= 0:
+            raise HTTPException(status_code=400, detail=f"Invalid price for {pair}")
+
+        amount_usd = volume * price
+        result = kraken_paper_buy(pair, amount_usd, price)
+        if result.get("status") == "failed":
+            raise HTTPException(
+                status_code=400, detail=result.get("error", "Buy failed")
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Paper buy failed: {str(e)}")
+
+
+@app.post("/paper/sell")
+async def paper_sell(pair: str = "BTCUSD", volume: float = 0.001):
+    """Place a paper sell order."""
+    from mcp_tools.execution import kraken_fetch_ticker, kraken_paper_sell
+
+    try:
+        ticker = kraken_fetch_ticker(pair)
+        price = ticker.get("price", 0)
+        if price <= 0:
+            raise HTTPException(status_code=400, detail=f"Invalid price for {pair}")
+
+        result = kraken_paper_sell(pair, volume, price)
+        if result.get("status") == "failed":
+            raise HTTPException(
+                status_code=400, detail=result.get("error", "Sell failed")
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Paper sell failed: {str(e)}")

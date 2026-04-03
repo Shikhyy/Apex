@@ -48,7 +48,7 @@ def _generate_eip712_signature(intent_data: dict) -> str:
         domain = {
             "name": "APEX",
             "version": "1",
-            "chainId": 1,
+            "chainId": 84532,
         }
         types = {
             "TradeIntent": [

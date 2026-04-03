@@ -14,8 +14,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-load_dotenv()
-
 _llm: Optional[ChatGroq] = None
 
 

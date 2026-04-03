@@ -22,6 +22,19 @@ from mcp_tools.execution import (
     calculate_realized_pnl,
 )
 from mcp_tools.erc8004_skills import post_reputation_signal, get_agent_card
+from mcp_tools.social import (
+    post_to_twitter,
+    post_to_discord,
+    generate_cycle_summary,
+    auto_share_cycle,
+    get_social_stats,
+)
+from mcp_tools.tee_attestation import (
+    generate_execution_proof,
+    verify_attestation,
+    generate_agent_proof,
+    get_tee_status,
+)
 
 mcp = FastMCP("APEX Skills Server")
 
@@ -42,6 +55,15 @@ for skill in [
     calculate_realized_pnl,
     post_reputation_signal,
     get_agent_card,
+    post_to_twitter,
+    post_to_discord,
+    generate_cycle_summary,
+    auto_share_cycle,
+    get_social_stats,
+    generate_execution_proof,
+    verify_attestation,
+    generate_agent_proof,
+    get_tee_status,
 ]:
     mcp.tool()(skill)
 

@@ -35,15 +35,94 @@ def _simulate_execution(opportunity: dict, amount_usd: float) -> dict:
     }
 
 
+def _build_signed_intent(opportunity: dict, amount_usd: float) -> dict:
+    """Build a signed intent payload from opportunity data."""
+    protocol = opportunity.get("protocol", "unknown")
+    pool = opportunity.get("pool", "unknown")
+    token = opportunity.get("token", "USDC")
+    return {
+        "protocol": protocol,
+        "pool": pool,
+        "token": token,
+        "amount": amount_usd,
+        "apy": opportunity.get("apy", 0.0),
+        "timestamp": int(time.time()),
+    }
+
+
 def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
-    """Attempt real execution via Surge API if available."""
+    """Attempt real execution via Surge API, then Kraken paper, then simulation."""
     api_key = os.environ.get("SURGE_API_KEY")
-    if not api_key:
+    vault_address = os.environ.get("SURGE_VAULT_ADDRESS")
+
+    if not api_key or not vault_address:
         return _simulate_execution(opportunity, amount_usd)
 
-    # Real Surge execution would go here
-    # For now, fall back to simulation since sandbox may not be available
+    signed_intent = _build_signed_intent(opportunity, amount_usd)
+
+    # Try Surge API first
+    try:
+        loop = asyncio.get_running_loop()
+        future = asyncio.run_coroutine_threadsafe(
+            _call_surge_execute(signed_intent, vault_address), loop
+        )
+        surge_result = future.result(timeout=30)
+    except RuntimeError:
+        surge_result = asyncio.run(_call_surge_execute(signed_intent, vault_address))
+
+    if surge_result.get("status") == "success" and not surge_result.get("error"):
+        return {
+            "execution_time": 1.0,
+            "actual_pnl": _compute_pnl_from_surge(surge_result, opportunity),
+            "tx_hash": surge_result.get("tx_hash", ""),
+            "protocol": surge_result.get("protocol", "surge"),
+        }
+
+    logger.warning(
+        "[EXECUTOR] Surge execution failed (%s) — falling back to Kraken paper",
+        surge_result.get("error", "unknown"),
+    )
+
+    # Fall back to Kraken paper trading
+    try:
+        from mcp_tools.execution import kraken_paper_buy, kraken_fetch_ticker
+
+        protocol = opportunity.get("protocol", "unknown")
+        pool = opportunity.get("pool", "unknown")
+        pair = f"{protocol.upper()}/USD"
+        ticker = kraken_fetch_ticker(pair)
+        price = ticker.get("price", 2000.0)
+        kraken_result = kraken_paper_buy(pair, amount_usd, price)
+
+        if kraken_result.get("status") == "success":
+            apy = opportunity.get("apy", 0.0)
+            pnl = amount_usd * (apy / 100)
+            return {
+                "execution_time": 1.0,
+                "actual_pnl": round(pnl, 2),
+                "tx_hash": f"0xkraken_{protocol}_{pool}",
+                "protocol": "kraken_paper",
+            }
+    except Exception as e:
+        logger.warning("[EXECUTOR] Kraken paper fallback failed: %s", e)
+
+    # Final fallback: simulation
+    logger.warning("[EXECUTOR] All real execution paths failed — using simulation")
     return _simulate_execution(opportunity, amount_usd)
+
+
+async def _call_surge_execute(signed_intent: dict, vault_address: str) -> dict:
+    """Async wrapper around execute_surge_intent."""
+    from mcp_tools.execution import execute_surge_intent
+
+    return await execute_surge_intent(signed_intent, vault_address=vault_address)
+
+
+def _compute_pnl_from_surge(surge_result: dict, opportunity: dict) -> float:
+    """Derive actual PnL from Surge execution result."""
+    executed_amount = surge_result.get("executed_amount", 0.0)
+    apy = opportunity.get("apy", 0.0)
+    return round(executed_amount * (apy / 100), 2)
 
 
 def executor_node(state: APEXState) -> dict:

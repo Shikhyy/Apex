@@ -1,6 +1,6 @@
 {
-  "scout": null,
-  "strategist": null,
-  "guardian": null,
-  "executor": null
+  "scout": 2,
+  "strategist": 3,
+  "guardian": 4,
+  "executor": 5
 }
