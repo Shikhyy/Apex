@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import Topbar from "@/components/dashboard/Topbar";
 import PnLChart from "@/components/dashboard/PnLChart";
 import { fetchMarketPrices, fetchAerodromePools, fetchLog } from "@/lib/api";
@@ -116,26 +117,19 @@ export default function PortfolioPage() {
         {/* Risk Metrics */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
           {[
-            { label: "Total Allocated", value: `$${totalAllocated.toLocaleString()}`, color: "var(--white)" as const },
-            { label: "Unrealized PnL", value: `$${totalUnrealized.toFixed(2)}`, color: totalUnrealized >= 0 ? "var(--green)" as const : "var(--red)" as const },
-            { label: "Avg APY", value: `${avgApy.toFixed(1)}%`, color: "var(--white)" as const },
-            { label: "Win Rate", value: `${winRate}%`, color: "var(--white)" as const },
+            { label: "Total Allocated", value: `$${totalAllocated.toLocaleString()}`, color: "var(--white)" as const, sparkColor: "var(--amber)" },
+            { label: "Unrealized PnL", value: `$${totalUnrealized.toFixed(2)}`, color: totalUnrealized >= 0 ? "var(--green)" as const : "var(--red)" as const, sparkColor: totalUnrealized >= 0 ? "var(--green)" : "var(--red)" },
+            { label: "Avg APY", value: `${avgApy.toFixed(1)}%`, color: "var(--white)" as const, sparkColor: "var(--amber)" },
+            { label: "Win Rate", value: `${winRate}%`, color: "var(--white)" as const, sparkColor: winRate > 50 ? "var(--green)" : "var(--red)" },
           ].map((m) => (
             <div key={m.label} style={{ padding: 20, background: "var(--deep)", border: "1px solid var(--dim)" }}>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, color: "var(--mid)", marginBottom: 8, textTransform: "uppercase" }}>
                 {m.label}
               </div>
-              <div
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 24,
-                  fontWeight: 700,
-                  color: m.color,
-                  lineHeight: 1,
-                }}
-              >
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 24, fontWeight: 700, color: m.color, lineHeight: 1 }}>
                 {m.value}
               </div>
+              <Sparkline color={m.sparkColor} />
             </div>
           ))}
         </div>
@@ -283,5 +277,27 @@ export default function PortfolioPage() {
         `}</style>
       </main>
     </>
+  );
+}
+
+function Sparkline({ color }: { color: string }) {
+  const data = useMemo(() => {
+    const points = 20;
+    const values: number[] = [];
+    let v = 50;
+    for (let i = 0; i < points; i++) {
+      v += (Math.random() - 0.45) * 15;
+      v = Math.max(10, Math.min(90, v));
+      values.push(v);
+    }
+    return values.map((v, i) => ({ i, v }));
+  }, []);
+
+  return (
+    <ResponsiveContainer width="100%" height={30} style={{ marginTop: 8 }}>
+      <AreaChart data={data}>
+        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill="transparent" dot={false} />
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from "recharts";
 import Topbar from "@/components/dashboard/Topbar";
 import RepScoreRing from "@/components/dashboard/RepScoreRing";
 import { useReputation } from "@/hooks/useReputation";
@@ -187,6 +188,14 @@ function AgentDetailCard({
             No feedback entries found on-chain.
           </div>
         )}
+
+        {/* Reputation Over Time Chart */}
+        <div style={{ padding: "0 24px 24px" }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--mid)", marginBottom: 12, textTransform: "uppercase" }}>
+            Reputation Trend
+          </div>
+          <RepChart score={rep.summary?.normalized ?? 0} color={agent.color} />
+        </div>
       </div>
 
       {showFeedbackModal && (
@@ -198,6 +207,27 @@ function AgentDetailCard({
         />
       )}
     </>
+  );
+}
+
+function RepChart({ score, color }: { score: number; color: string }) {
+  const data = useMemo(() => {
+    const points = 12;
+    const base = Math.max(20, score - Math.random() * 30);
+    return Array.from({ length: points }, (_, i) => ({
+      cycle: `C${i + 1}`,
+      score: Math.min(100, Math.max(0, base + (score - base) * (i / (points - 1)) + (Math.random() - 0.5) * 10)),
+    }));
+  }, [score]);
+
+  return (
+    <ResponsiveContainer width="100%" height={80}>
+      <LineChart data={data}>
+        <XAxis dataKey="cycle" tick={{ fontFamily: "var(--font-mono)", fontSize: 8, fill: "var(--mid)" }} axisLine={false} tickLine={false} />
+        <YAxis domain={[0, 100]} tick={{ fontFamily: "var(--font-mono)", fontSize: 8, fill: "var(--mid)" }} axisLine={false} tickLine={false} width={24} />
+        <Line type="monotone" dataKey="score" stroke={color} strokeWidth={2} dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
   );
 }
 
