@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAccount } from "wagmi";
 import Topbar from "@/components/dashboard/Topbar";
 import { ADDRESSES } from "@/lib/contracts";
 
@@ -31,6 +32,7 @@ const defaultSettings: Settings = {
 };
 
 export default function SettingsPage() {
+  const { isConnected } = useAccount();
   const [connected] = useState(true);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [saved, setSaved] = useState(false);
@@ -301,6 +303,80 @@ export default function SettingsPage() {
             </div>
           ))}
         </Card>
+
+        {/* On-Chain Controls (Owner Only) */}
+        {isConnected && (
+          <Card title="On-Chain Controls">
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--mid)", marginBottom: 16 }}>
+              RiskRouter owner functions — requires contract owner privileges
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <button
+                data-interactive
+                style={{
+                  padding: "12px",
+                  border: "1px solid var(--dim)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  color: "var(--muted)",
+                  cursor: "not-allowed",
+                }}
+                title="Not yet deployed"
+              >
+                Set Vault Balance
+              </button>
+              <button
+                data-interactive
+                style={{
+                  padding: "12px",
+                  border: "1px solid var(--dim)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  color: "var(--muted)",
+                  cursor: "not-allowed",
+                }}
+                title="Not yet deployed"
+              >
+                Set Daily Loss Limit
+              </button>
+              <button
+                data-interactive
+                style={{
+                  padding: "12px",
+                  border: "1px solid var(--dim)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  color: "var(--muted)",
+                  cursor: "not-allowed",
+                }}
+                title="Not yet deployed"
+              >
+                Authorize Agent
+              </button>
+              <button
+                data-interactive
+                style={{
+                  padding: "12px",
+                  border: "1px solid var(--dim)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  color: "var(--muted)",
+                  cursor: "not-allowed",
+                }}
+                title="Not yet deployed"
+              >
+                Whitelist Protocol
+              </button>
+            </div>
+            <div style={{ marginTop: 12, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--mid)" }}>
+              RiskRouter not yet deployed. Buttons will be active after deployment.
+            </div>
+          </Card>
+        )}
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 16, marginTop: 32 }}>
