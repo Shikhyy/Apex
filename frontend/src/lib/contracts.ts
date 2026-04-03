@@ -161,3 +161,16 @@ export async function getClients(agentId: bigint): Promise<Address[]> {
     args: [agentId],
   }) as Promise<Address[]>;
 }
+
+export async function readFeedback(
+  agentId: bigint,
+  clientAddress: Address,
+  feedbackIndex: bigint
+): Promise<[bigint, number, string, string, boolean]> {
+  return publicClient.readContract({
+    address: ADDRESSES.reputationRegistry,
+    abi: REPUTATION_REGISTRY_ABI,
+    functionName: "readFeedback",
+    args: [agentId, clientAddress, feedbackIndex],
+  }) as Promise<[bigint, number, string, string, boolean]>;
+}
