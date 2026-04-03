@@ -9,47 +9,26 @@ interface LogoProps {
 
 export default function Logo({ variant = "full", light = false }: LogoProps) {
   const textColor = light ? "var(--void)" : "var(--white)";
-  const iconBg = light ? "var(--void)" : "var(--amber)";
-  const iconColor = light ? "var(--amber)" : "var(--void)";
+  const iconBg = light ? "var(--void)" : "#0a0a0a";
+  const boltColor = light ? "var(--amber)" : "var(--amber)";
 
   if (variant === "icon") {
     return (
       <Link href="/" aria-label="APEX Home">
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            background: iconBg,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill={iconColor}>
-            <path d="M13 2L3 22h4l2-6h6l2 6h4L13 2zm0 6l-3 8h6l-3-8z" />
-          </svg>
-        </div>
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="4" fill={iconBg} />
+          <path d="M18 4L8 24h4l2-6h6l2 6h4L18 4zm0 8l-3 8h6l-3-8z" fill={boltColor} />
+        </svg>
       </Link>
     );
   }
 
   return (
     <Link href="/" aria-label="APEX Home" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <div
-        style={{
-          width: 32,
-          height: 32,
-          background: iconBg,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill={iconColor}>
-          <path d="M13 2L3 22h4l2-6h6l2 6h4L13 2zm0 6l-3 8h6l-3-8z" />
-        </svg>
-      </div>
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" style={{ flexShrink: 0 }}>
+        <rect width="32" height="32" rx="4" fill={iconBg} />
+        <path d="M18 4L8 24h4l2-6h6l2 6h4L18 4zm0 8l-3 8h6l-3-8z" fill={boltColor} />
+      </svg>
       <div>
         <div
           style={{

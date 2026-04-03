@@ -27,6 +27,9 @@ export const metadata: Metadata = {
   title: "APEX — Self-Certifying Yield Optimizer",
   description:
     "Multi-agent DeFi yield optimizer with verifiable ERC-8004 on-chain trust. Built for the lablab.ai AI Trading Agents Hackathon.",
+  icons: {
+    icon: "/favicon.svg",
+  },
   openGraph: {
     title: "APEX",
     description: "The agent that earns reputation by knowing when NOT to trade.",

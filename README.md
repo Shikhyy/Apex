@@ -1,13 +1,26 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/status-active-success?style=for-the-badge" alt="Status">
-  <img src="https://img.shields.io/badge/python-3.12+-blue?style=for-the-badge&logo=python" alt="Python">
-  <img src="https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js" alt="Next.js">
-  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
+  <img src="frontend/public/favicon.svg" alt="APEX Logo" width="64" height="64" />
 </p>
 
 <h1 align="center">⚡ APEX</h1>
+
 <p align="center"><strong>Self-Certifying Yield Optimizer</strong></p>
 <p align="center">Multi-agent DeFi system that earns on-chain reputation by refusing bad trades</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/status-active-success?style=for-the-badge" alt="Status">
+  <img src="https://img.shields.io/badge/python-3.12+-blue?style=for-the-badge&logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js" alt="Next.js">
+  <img src="https://img.shields.io/badge/ERC--8004-verified-purple?style=for-the-badge" alt="ERC-8004">
+  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Base_Sepolia-deployed-60a5fa?style=flat-square&logo=ethereum" alt="Base Sepolia">
+  <img src="https://img.shields.io/badge/Groq-Llama_3.3_70B-f59e0b?style=flat-square" alt="Groq LLM">
+  <img src="https://img.shields.io/badge/LangGraph-orchestrator-ff6b6b?style=flat-square" alt="LangGraph">
+  <img src="https://img.shields.io/badge/wagmi-wallet_connected-8b5cf6?style=flat-square" alt="Wagmi">
+</p>
 
 ---
 
@@ -40,15 +53,16 @@ APEX is an autonomous multi-agent yield optimizer where every decision is a **ve
 - **Real-Time SSE Streaming** — Watch agent decisions unfold live in the dashboard
 - **Multi-Source Market Data** — PRISM AI signals, Aerodrome pools, Aave, Curve, Compound yields
 - **EIP-712 Signed Intents** — Cryptographically verifiable trade intents before execution
-- **Dual Execution Paths** — Surge Risk Router (on-chain) + Kraken CLI (CEX) with mock fallbacks
+- **Wallet Integration** — Wagmi + RainbowKit for multi-wallet support (MetaMask, WalletConnect, Coinbase)
 - **Persistent History** — Supabase-backed cycle log and reputation tracking
+- **Terminal-Grade UI** — Monopo.vn aesthetic with Bebas Neue typography, custom cursor, scroll-reveal animations
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  FRONTEND LAYER                                                     │
-│  Next.js 15 · React 19 · TypeScript · Recharts · Viem              │
+│  Next.js 15 · React 19 · TypeScript · Wagmi · RainbowKit           │
 │                                                                     │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
 │  │ Agent    │ │ PnL      │ │ Opps &   │ │ Market   │              │
@@ -130,6 +144,36 @@ The Guardian **immediately vetoes** if any single condition is met:
 7. LLM uncertainty     → when in doubt, VETO
 ```
 
+## Frontend
+
+The APEX dashboard is a Next.js 15 application with a terminal-grade dark intelligence aesthetic inspired by monopo.vn.
+
+### Pages
+
+| Route | Description |
+|-------|-------------|
+| `/` | Marketing landing page with scroll-reveal animations, 3D tilt cards, live terminal demo |
+| `/dashboard` | Live cycle monitor — FlowPipeline, agent cards with rep scores, SSE event feed, veto log |
+| `/dashboard/agents` | Agent registry — expanded cards with on-chain wallet resolution, feedback table |
+| `/dashboard/veto-log` | Full veto history — filterable table with stats, CSV export |
+| `/dashboard/portfolio` | Portfolio & yield — PnL chart, active positions, trade history, risk metrics |
+| `/dashboard/settings` | Configuration — guardian thresholds, API keys, agent models, network selector |
+| `/docs` | Protocol documentation — architecture, ERC-8004 integration, API reference, setup guide |
+
+### Design System
+
+- **Fonts:** Bebas Neue (display) · DM Mono (data/labels) · DM Sans (body)
+- **Palette:** `#0a0a0a` void · `#f0ede8` warm white · `#e8ff00` amber accent · `#f87171` veto red
+- **Agent Colors:** `#60a5fa` Scout · `#a78bfa` Strategist · `#f59e0b` Guardian · `#34d399` Executor
+- **Aesthetic:** Zero border-radius, brutalist, custom cursor, noise overlay, scroll-reveal animations
+
+### Wallet Integration
+
+- **Wagmi + RainbowKit** — Multi-wallet support (MetaMask, WalletConnect, Coinbase)
+- **Dark theme** with amber accent, zero border-radius matching the design system
+- **On-chain reads** — viem public client for reputation, agent identity, feedback
+- **Write interactions** — Give feedback to agents, trigger on-chain actions when connected
+
 ## Project Structure
 
 ```
@@ -151,9 +195,25 @@ apex/
 │   ├── risk_analysis.py        # Drawdown, gas estimation, audit checks
 │   └── erc8004_skills.py       # ERC-8004 reputation signals & agent cards
 ├── frontend/
-│   ├── app/page.tsx            # Main dashboard (agent cards, PnL chart, veto log)
-│   ├── components/dashboard/   # Recharts PnL chart, opportunities table, market signals
-│   └── lib/                    # API client, TypeScript types
+│   ├── src/
+│   │   ├── app/                # Next.js App Router pages
+│   │   │   ├── page.tsx        # Marketing landing
+│   │   │   ├── dashboard/      # Dashboard pages (monitor, agents, veto, portfolio, settings)
+│   │   │   ├── docs/           # Protocol documentation
+│   │   │   └── api/stream/     # SSE proxy route
+│   │   ├── components/         # React components
+│   │   │   ├── ui/             # Primitives (Loader, Cursor, Marquee, RevealText, Noise)
+│   │   │   ├── marketing/      # Landing page sections
+│   │   │   ├── dashboard/      # Dashboard components (AgentCard, FlowPipeline, etc.)
+│   │   │   └── shared/         # Logo, Nav, Footer
+│   │   ├── hooks/              # Custom hooks (useSSE, useReputation, useCycle)
+│   │   ├── lib/                # viem client, contract ABIs, API helpers
+│   │   └── styles/             # Design system CSS
+│   └── public/                 # Static assets (favicon, OG image)
+├── contracts/
+│   ├── src/                    # Solidity contracts (IdentityRegistry, ReputationRegistry, RiskRouter)
+│   ├── script/                 # Foundry deployment scripts
+│   └── out/                    # Compiled artifacts + ABIs
 ├── scripts/
 │   ├── register_agents.py      # On-chain agent registration
 │   └── deploy_contracts.py     # Contract deployment helper
@@ -232,7 +292,7 @@ docker compose up --build
 
 ### 5. Open Dashboard
 
-Navigate to `http://localhost:3000` and click **▶ RUN CYCLE** to watch the agent pipeline in action.
+Navigate to `http://localhost:3000` and click **Launch Dashboard** to watch the agent pipeline in action.
 
 ## API Reference
 
@@ -241,7 +301,7 @@ Navigate to `http://localhost:3000` and click **▶ RUN CYCLE** to watch the age
 | `/health` | GET | System health check (keys, agent IDs, RPC) |
 | `/stream` | GET | SSE stream of live agent decisions |
 | `/cycle` | POST | Trigger a new agent pipeline cycle |
-| `/log` | GET | Retrieve in-memory cycle history |
+| `/log` | GET | Retrieve persisted cycle history (Supabase / in-memory fallback) |
 | `/agents` | GET | List registered agents with metadata |
 | `/reputation/{agent_id}` | GET | Fetch on-chain reputation signals |
 | `/market/prices` | GET | Real-time prices from PRISM API |
@@ -252,8 +312,8 @@ Navigate to `http://localhost:3000` and click **▶ RUN CYCLE** to watch the age
 
 | Contract | Network | Address |
 |----------|---------|---------|
-| Identity Registry | Base Sepolia | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| Reputation Registry | Base Sepolia | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| Identity Registry | Base Sepolia | [`0xE6fC...4A36`](https://sepolia.basescan.org/address/0xE6fC2495eE4207d4D8444D03D2418566e4234A36) |
+| Reputation Registry | Base Sepolia | [`0xeC6a...9268`](https://sepolia.basescan.org/address/0xeC6a0e1aB27882e222200F89D17F76ED8413C9268) |
 
 ## Integrations
 
@@ -287,7 +347,7 @@ Test coverage spans all four agents, MCP tools, market data fetchers, signing ut
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Next.js 15, React 19, TypeScript, Recharts, Viem |
+| **Frontend** | Next.js 15, React 19, TypeScript, Recharts, Viem, Wagmi, RainbowKit |
 | **Backend** | FastAPI, LangGraph, langchain-groq, Pydantic |
 | **LLM** | Groq LPU — Llama 3.3 70B Versatile |
 | **Blockchain** | ERC-8004, Base Sepolia, web3.py, eth-account |
