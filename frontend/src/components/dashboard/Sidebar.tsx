@@ -23,8 +23,8 @@ export default function Sidebar() {
         height: "100vh",
         position: "sticky",
         top: 0,
-        background: "var(--deep)",
-        borderRight: "1px solid var(--dim)",
+        background: "linear-gradient(180deg, rgba(13, 13, 13, 0.96), rgba(94, 0, 6, 0.2))",
+        borderRight: "1px solid rgba(213, 62, 15, 0.25)",
         display: "flex",
         flexDirection: "column",
         padding: "24px 0",
@@ -32,7 +32,7 @@ export default function Sidebar() {
       }}
     >
       <div style={{ padding: "0 20px", marginBottom: 40 }}>
-        <Logo variant="icon" />
+        <Logo variant="full" />
       </div>
 
       <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -51,13 +51,13 @@ export default function Sidebar() {
                 fontFamily: "var(--font-mono)",
                 fontSize: 11,
                 letterSpacing: 1,
-                color: active ? "var(--amber)" : "var(--muted)",
-                borderLeft: active ? "3px solid var(--amber)" : "3px solid transparent",
-                background: active ? "var(--raised)" : "transparent",
+                color: active ? "var(--apex-burn)" : "var(--muted)",
+                borderLeft: active ? "3px solid var(--apex-burn)" : "3px solid transparent",
+                background: active ? "rgba(213, 62, 15, 0.12)" : "transparent",
                 transition: "all var(--fast) var(--ease-out)",
               }}
               onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.color = "var(--white)";
+                if (!active) e.currentTarget.style.color = "var(--apex-cream)";
               }}
               onMouseLeave={(e) => {
                 if (!active) e.currentTarget.style.color = "var(--muted)";
@@ -77,7 +77,7 @@ export default function Sidebar() {
             fontFamily: "var(--font-mono)",
             fontSize: 10,
             letterSpacing: 1,
-            color: "var(--mid)",
+            color: "var(--muted)",
           }}
         >
           ← Back to Home

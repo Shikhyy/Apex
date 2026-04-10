@@ -46,7 +46,8 @@ export function useCycle() {
           next.activeNode = "guardian";
           const decision = data as Record<string, unknown>;
           if (decision.guardian_decision !== undefined) {
-            const approved = decision.guardian_decision === "approved";
+            // Backend emits APPROVED/VETOED in uppercase
+            const approved = String(decision.guardian_decision).toUpperCase() === "APPROVED";
             next.decision = {
               approved,
               reason: (decision.guardian_reason as string) || "",
@@ -54,6 +55,8 @@ export function useCycle() {
               detail: (decision.guardian_detail as string) || "",
               txHash: decision.tx_hash as string | undefined,
             };
+            // Only increment counters based on the guardian decision
+            // (veto node SSE event should NOT double-count)
             if (!approved) {
               next.vetoCount = s.vetoCount + 1;
             } else {
@@ -67,13 +70,18 @@ export function useCycle() {
           if (data.tx_hash) next.txHash = data.tx_hash as string;
           break;
         case "veto":
-          next.vetoCount = s.vetoCount + 1;
+          // veto node fires after guardian VETO — don't double-count vetoCount,
+          // just advance the active node to show the veto path visually
+          next.activeNode = null;
           break;
         case "done":
           next.status = "complete";
           next.activeNode = null;
           if (data.session_pnl !== undefined) next.sessionPnl = Number(data.session_pnl);
           if (data.cycle_number !== undefined) next.cycleNumber = Number(data.cycle_number);
+          // Sync final veto/approval counts from authoritative backend state
+          if (data.veto_count !== undefined) next.vetoCount = Number(data.veto_count);
+          if (data.approval_count !== undefined) next.approvalCount = Number(data.approval_count);
           dismissTimer.current = setTimeout(() => {
             setState((prev) => ({ ...prev, decision: null }));
           }, 8000);

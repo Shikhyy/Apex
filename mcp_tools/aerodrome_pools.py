@@ -86,51 +86,41 @@ _MOCK_AERO_POOLS: list[YieldOpportunity] = [
 
 
 async def fetch_aerodrome_pools() -> list[YieldOpportunity]:
-    """Fetch top Aerodrome pools on Base by TVL.
+    """Fetch top Base DEX pools using DeFi Llama API.
 
-    Queries the subgraph via GraphQL, parses pool data, and converts
-    to YieldOpportunity format with computed risk scores.
+    Queries the Llama.fi yields API for Base chain pools.
+    Falls back to realistic mock data on any failure.
 
-    Returns mock data on any failure for demo reliability.
+    Note: Aerodrome subgraph is no longer available, using Llama Base pools as replacement.
     """
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.post(
-                SUBGRAPH_URL,
-                json={"query": _GRAPHQL_QUERY},
-                headers={"Content-Type": "application/json"},
-            )
+            resp = await client.get("https://yields.llama.fi/pools?chain=Base")
             resp.raise_for_status()
             data = resp.json()
 
-        pool_data = data.get("data", {}).get("pools", [])
-        if not pool_data:
-            logger.info("No pools returned from Aerodrome subgraph, using mock")
-            return list(_MOCK_AERO_POOLS)
-
         pools: list[YieldOpportunity] = []
-        for p in pool_data:
-            tvl = float(p.get("reserveUSD", 0))
-            token0 = p.get("token0", {}).get("symbol", "?")
-            token1 = p.get("token1", {}).get("symbol", "?")
-            fee_apr = float(p.get("feeAPR", 0))
+        stable_pairs = {"USDC", "USDT", "DAI", "FRAX", "USDC/USDT", "DAI/USDC"}
 
-            if tvl < 500_000:
+        for p in data.get("data", []):
+            symbol = p.get("symbol", "")
+            tvl = p.get("tvlUsd", 0) or 0
+            apy_raw = p.get("apy") or p.get("apyBase") or 0
+            apy = float(apy_raw) if apy_raw is not None else 0
+
+            if tvl < 500_000 or apy > 100:
                 continue
 
-            # APY from fee APR + estimated emissions (rough multiplier)
-            apy = fee_apr * 100 * 1.5
-
-            # Risk score: low TVL = higher risk, stable pairs = lower risk
-            stable_pair = {token0.upper(), token1.upper()} <= {"USDC", "USDT", "DAI"}
-            base_risk = max(0.05, min(0.5, 1.0 - (tvl / 100_000_000)))
-            risk_score = base_risk * (0.7 if stable_pair else 1.0)
+            is_stable = p.get("stablecoin", False) or symbol in stable_pairs
+            risk_score = (
+                0.08 if is_stable else (0.25 if p.get("ilRisk") == "high" else 0.20)
+            )
 
             pools.append(
                 YieldOpportunity(
                     protocol="aerodrome",
-                    pool=f"{token0}/{token1}",
-                    apy=round(apy, 2),
+                    pool=symbol,
+                    apy=round(apy, 2) if apy else 5.0,
                     tvl_usd=round(tvl, 2),
                     risk_score=round(risk_score, 2),
                     liquidity_usd=round(tvl * 0.73, 2),
@@ -138,11 +128,15 @@ async def fetch_aerodrome_pools() -> list[YieldOpportunity]:
             )
 
         if pools:
-            logger.info("Fetched %d Aerodrome pools from subgraph", len(pools))
-            return pools
+            pools.sort(key=lambda x: x["tvl_usd"], reverse=True)
+            logger.info(
+                "Fetched %d Base pools from Llama API (Aerodrome replacement)",
+                len(pools),
+            )
+            return pools[:15]
 
     except Exception as exc:
-        logger.warning("Aerodrome subgraph failed (%s), using mock data", exc)
+        logger.warning("Base Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Aerodrome pools", len(_MOCK_AERO_POOLS))
     return list(_MOCK_AERO_POOLS)

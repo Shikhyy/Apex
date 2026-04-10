@@ -40,7 +40,7 @@ export default function StackSection() {
           {stats.map((s) => (
             <RevealText key={s.label} delay={100}>
               <div style={{ padding: 24, background: "var(--deep)", border: "1px solid var(--dim)" }}>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 40, letterSpacing: 2, color: "var(--amber)", lineHeight: 1 }}>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 40, letterSpacing: 2, color: "var(--apex-burn)", lineHeight: 1 }}>
                   {s.value}
                 </div>
                 <div
@@ -74,14 +74,18 @@ export default function StackSection() {
                 border: "1px solid var(--dim)",
                 color: "var(--muted)",
                 transition: "all var(--fast) var(--ease-out)",
+                borderRadius: 999,
+                background: "rgba(213, 62, 15, 0.04)",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--amber)";
-                e.currentTarget.style.color = "var(--amber)";
+                e.currentTarget.style.borderColor = "var(--apex-burn)";
+                e.currentTarget.style.color = "var(--apex-cream)";
+                e.currentTarget.style.background = "rgba(213, 62, 15, 0.22)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.borderColor = "var(--dim)";
                 e.currentTarget.style.color = "var(--muted)";
+                e.currentTarget.style.background = "rgba(213, 62, 15, 0.04)";
               }}
             >
               {t}

@@ -5,6 +5,7 @@ import json
 import os
 import time
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 
@@ -26,7 +27,10 @@ app = FastAPI(title="APEX", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,6 +41,17 @@ cycle_log: list[dict] = []
 _cycle_running = False
 _last_cycle_time: float = 0
 CYCLE_COOLDOWN_SECONDS = 5
+AUTO_TRADER_ENABLED = os.environ.get("APEX_AUTOTRADE_ENABLED", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+AUTO_TRADER_INTERVAL_SECONDS = float(
+    os.environ.get("APEX_AUTOTRADE_INTERVAL_SECONDS", "30")
+)
+cycle_subscribers: set[asyncio.Queue[dict]] = set()
+_autotrader_task: asyncio.Task | None = None
 
 IDENTITY_REGISTRY = os.environ.get(
     "IDENTITY_REGISTRY_ADDRESS",
@@ -55,14 +70,34 @@ class ErrorResponse(BaseModel):
     status: int
 
 
-async def _run_cycle() -> AsyncGenerator[str, None]:
-    """Run a single APEX cycle and yield SSE events."""
+def _format_cycle_event(payload: dict) -> str:
+    return f"event: {payload['node']}\ndata: {json.dumps(payload)}\n\n"
+
+
+def _persist_cycle_event(node_name: str, timestamp: str, data: dict, cycle_number: int) -> None:
+    try:
+        get_db().insert_cycle_event(node_name, timestamp, data, cycle_number)
+    except Exception as exc:
+        print(f"[APEX] Failed to persist {node_name} event: {exc}")
+
+
+def _broadcast_cycle_event(payload: dict) -> None:
+    for queue in list(cycle_subscribers):
+        try:
+            queue.put_nowait(payload)
+        except Exception:
+            cycle_subscribers.discard(queue)
+
+
+async def _execute_cycle() -> None:
+    """Run a single APEX cycle and publish SSE events to subscribers."""
     global cycle_log, _cycle_running
 
     state = _default_state()
     state["cycle_number"] = len([c for c in cycle_log if c.get("node") == "done"]) + 1
 
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    _cycle_running = True
 
     try:
         async for event in apex_graph.astream(state, config=config):
@@ -95,10 +130,10 @@ async def _run_cycle() -> AsyncGenerator[str, None]:
                 cycle_log.append(
                     {"node": node_name, "timestamp": ts, "data": sse_event["data"]}
                 )
-                get_db().insert_cycle_event(
+                _persist_cycle_event(
                     node_name, ts, sse_event["data"], state.get("cycle_number", 0)
                 )
-                yield f"data: {json.dumps(sse_event)}\n\n"
+                _broadcast_cycle_event(sse_event)
 
                 # Update session metrics on guardian completion
                 if node_name == "guardian":
@@ -128,16 +163,66 @@ async def _run_cycle() -> AsyncGenerator[str, None]:
             },
         }
         cycle_log.append(done_event)
-        get_db().insert_cycle_event(
+        _persist_cycle_event(
             "done",
             done_event["timestamp"],
             done_event["data"],
             state.get("cycle_number", 0),
         )
-        yield f"data: {json.dumps(done_event)}\n\n"
+        _broadcast_cycle_event(done_event)
+
+    except Exception as exc:
+        print(f"[APEX] Cycle execution failed: {exc}")
 
     finally:
         _cycle_running = False
+
+
+async def _stream_cycle_events() -> AsyncGenerator[str, None]:
+    """Stream existing and future cycle events as SSE."""
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    cycle_subscribers.add(queue)
+
+    try:
+        for item in cycle_log[-50:]:
+            yield _format_cycle_event(
+                {"node": item["node"], "timestamp": item["timestamp"], "data": item["data"]}
+            )
+
+        while True:
+            payload = await queue.get()
+            yield _format_cycle_event(payload)
+    finally:
+        cycle_subscribers.discard(queue)
+
+
+async def _autotrader_loop() -> None:
+    """Continuously launch cycles on an interval while the backend is running."""
+    while True:
+        if not _cycle_running:
+            await _execute_cycle()
+
+        try:
+            await asyncio.sleep(AUTO_TRADER_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            break
+
+
+@app.on_event("startup")
+async def _start_autotrader() -> None:
+    global _autotrader_task
+    if AUTO_TRADER_ENABLED and (_autotrader_task is None or _autotrader_task.done()):
+        _autotrader_task = asyncio.create_task(_autotrader_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_autotrader() -> None:
+    global _autotrader_task
+    if _autotrader_task is not None:
+        _autotrader_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _autotrader_task
+        _autotrader_task = None
 
 
 @app.get("/health")
@@ -152,6 +237,8 @@ async def health():
         "groq_key_set": groq_set,
         "apex_private_key_set": key_set,
         "agent_ids_loaded": ids_loaded,
+        "autotrader_enabled": AUTO_TRADER_ENABLED,
+        "autotrader_running": _autotrader_task is not None and not _autotrader_task.done(),
         "base_rpc_connected": True,
     }
 
@@ -159,21 +246,8 @@ async def health():
 @app.get("/stream")
 async def stream():
     """SSE stream of agent decisions."""
-    global _cycle_running, _last_cycle_time
-    if _cycle_running:
-        raise HTTPException(status_code=409, detail="Cycle already running")
-
-    now = time.time()
-    if now - _last_cycle_time < CYCLE_COOLDOWN_SECONDS:
-        remaining = CYCLE_COOLDOWN_SECONDS - (now - _last_cycle_time)
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limited. Try again in {remaining:.0f}s.",
-        )
-    _last_cycle_time = now
-    _cycle_running = True
     return StreamingResponse(
-        _run_cycle(),
+        _stream_cycle_events(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -199,15 +273,7 @@ async def trigger_cycle():
         )
     _last_cycle_time = now
     _cycle_running = True
-
-    async def _run_and_reset():
-        try:
-            async for _ in _run_cycle():
-                pass  # Consume the generator so events are yielded and logged
-        finally:
-            _cycle_running = False
-
-    asyncio.create_task(_run_and_reset())
+    asyncio.create_task(_execute_cycle())
     return {
         "status": "started",
         "message": "Cycle started. Poll /log for results.",
@@ -502,9 +568,10 @@ async def get_paper_status():
 @app.get("/paper/history")
 async def get_paper_history():
     """Get paper trade history."""
-    from mcp_tools.execution import _paper_portfolio
+    from mcp_tools import execution as _execution_module
 
-    trades = _paper_portfolio.get("trades", []) if _paper_portfolio else []
+    portfolio = _execution_module._paper_portfolio
+    trades = portfolio.get("trades", []) if portfolio else []
     return {"trades": trades, "total_trades": len(trades)}
 
 

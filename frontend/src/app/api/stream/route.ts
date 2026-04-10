@@ -12,7 +12,13 @@ export async function GET() {
     if (!reader) {
       await writer.write(encoder.encode("data: Backend unavailable\n\n"));
       await writer.close();
-      return new Response("Backend unavailable", { status: 503 });
+      return new Response(stream.readable, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
     }
 
     (async () => {
@@ -23,14 +29,22 @@ export async function GET() {
           await writer.write(value);
         }
       } catch {
-        // Upstream disconnected
+        // Client or upstream disconnected
       } finally {
-        await writer.close();
+        try {
+          await writer.close();
+        } catch {
+          // Stream already closed
+        }
       }
     })();
   } catch {
-    await writer.write(encoder.encode("data: Backend unavailable\n\n"));
-    await writer.close();
+    try {
+      await writer.write(encoder.encode("data: Backend unavailable\n\n"));
+      await writer.close();
+    } catch {
+      // Stream already closed
+    }
   }
 
   return new Response(stream.readable, {

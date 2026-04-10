@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useWriteContract } from "wagmi";
 import Topbar from "@/components/dashboard/Topbar";
-import { ADDRESSES } from "@/lib/contracts";
+import { ADDRESSES, RISK_ROUTER_ABI } from "@/lib/contracts";
+import { parseUnits } from "viem";
 
 interface Settings {
   maxVolatility: number;
@@ -33,10 +34,18 @@ const defaultSettings: Settings = {
 
 export default function SettingsPage() {
   const { isConnected } = useAccount();
-  const [connected] = useState(true);
+  const { writeContractAsync, isPending } = useWriteContract();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [saved, setSaved] = useState(false);
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [status, setStatus] = useState<{ kind: "idle" | "success" | "error"; message: string }>({ kind: "idle", message: "" });
+  const [ownerForm, setOwnerForm] = useState({
+    agentWallet: "",
+    dailyLossLimit: "1000",
+    vaultBalance: "1000000",
+    protocol: "AAVE",
+    authorized: true,
+  });
 
   useEffect(() => {
     const stored = localStorage.getItem("apex-settings");
@@ -76,9 +85,34 @@ export default function SettingsPage() {
     setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const riskRouterConfigured = Boolean(ADDRESSES.riskRouter);
+
+  const submitOwnerAction = async (label: string, action: () => Promise<`0x${string}`>) => {
+    if (!isConnected) {
+      setStatus({ kind: "error", message: "Connect a wallet to use on-chain controls." });
+      return;
+    }
+
+    if (!riskRouterConfigured) {
+      setStatus({ kind: "error", message: "Set NEXT_PUBLIC_RISK_ROUTER_ADDRESS to enable on-chain controls." });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle", message: "" });
+      const hash = await action();
+      setStatus({ kind: "success", message: `${label} submitted. Tx ${hash.slice(0, 10)}…` });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : `${label} failed.`,
+      });
+    }
+  };
+
   return (
     <>
-      <Topbar title="Settings" connected={connected} />
+      <Topbar title="Settings" connected={isConnected} />
       <main style={{ padding: 32, maxWidth: 800 }}>
         {/* Save Banner */}
         {saved && (
@@ -98,6 +132,23 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {status.kind !== "idle" && (
+          <div
+            style={{
+              padding: "12px 20px",
+              background: status.kind === "success" ? "#34d39915" : "#ef444415",
+              border: `1px solid ${status.kind === "success" ? "var(--green)" : "var(--red)"}`,
+              marginBottom: 24,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: status.kind === "success" ? "var(--green)" : "var(--red)",
+              animation: "fadeIn 400ms var(--ease-out)",
+            }}
+          >
+            {status.message}
+          </div>
+        )}
+
         {/* Guardian Thresholds */}
         <Card title="Guardian Thresholds">
           {[
@@ -109,7 +160,7 @@ export default function SettingsPage() {
             <div key={s.key} style={{ marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                 <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)" }}>{s.label}</label>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--amber)" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--apex-burn)" }}>
                   {settings[s.key]}{s.unit}
                 </span>
               </div>
@@ -119,7 +170,7 @@ export default function SettingsPage() {
                 max={s.max}
                 value={settings[s.key] as number}
                 onChange={(e) => update(s.key, Number(e.target.value) as never)}
-                style={{ width: "100%", accentColor: "var(--amber)" }}
+                style={{ width: "100%", accentColor: "var(--apex-burn)" }}
               />
             </div>
           ))}
@@ -155,7 +206,7 @@ export default function SettingsPage() {
                   color: "var(--white)",
                   outline: "none",
                 }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--amber)")}
+                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--apex-burn)")}
                 onBlur={(e) => (e.currentTarget.style.borderColor = "var(--dim)")}
               />
             </div>
@@ -223,7 +274,7 @@ export default function SettingsPage() {
               type="checkbox"
               checked={settings.autoRun}
               onChange={(e) => update("autoRun", e.target.checked)}
-              style={{ accentColor: "var(--amber)" }}
+              style={{ accentColor: "var(--apex-burn)" }}
             />
             <label style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--white)" }}>Auto-run cycles</label>
           </div>
@@ -279,6 +330,7 @@ export default function SettingsPage() {
           {[
             { label: "Identity Registry", value: ADDRESSES.identityRegistry },
             { label: "Reputation Registry", value: ADDRESSES.reputationRegistry },
+            { label: "Risk Router", value: ADDRESSES.riskRouter || "Not configured" },
           ].map((c) => (
             <div key={c.label} style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--mid)", marginBottom: 4 }}>{c.label}</div>
@@ -292,7 +344,7 @@ export default function SettingsPage() {
                   border: "1px solid var(--dim)",
                 }}
               >
-                <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--amber)" }}>{c.value}</code>
+                <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--apex-burn)" }}>{c.value}</code>
                 <button
                   onClick={() => navigator.clipboard.writeText(c.value)}
                   style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)" }}
@@ -310,70 +362,232 @@ export default function SettingsPage() {
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--mid)", marginBottom: 16 }}>
               RiskRouter owner functions — requires contract owner privileges
             </div>
+            {!riskRouterConfigured && (
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--red)", marginBottom: 16 }}>
+                Configure NEXT_PUBLIC_RISK_ROUTER_ADDRESS to enable writes.
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 8 }}>
+                  Agent Wallet
+                </label>
+                <input
+                  value={ownerForm.agentWallet}
+                  onChange={(e) => setOwnerForm((prev) => ({ ...prev, agentWallet: e.target.value }))}
+                  placeholder="0x..."
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    background: "var(--raised)",
+                    border: "1px solid var(--dim)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    color: "var(--white)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 8 }}>
+                  Daily Loss Limit (USD)
+                </label>
+                <input
+                  value={ownerForm.dailyLossLimit}
+                  onChange={(e) => setOwnerForm((prev) => ({ ...prev, dailyLossLimit: e.target.value }))}
+                  inputMode="decimal"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    background: "var(--raised)",
+                    border: "1px solid var(--dim)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    color: "var(--white)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 8 }}>
+                  Vault Balance (USD)
+                </label>
+                <input
+                  value={ownerForm.vaultBalance}
+                  onChange={(e) => setOwnerForm((prev) => ({ ...prev, vaultBalance: e.target.value }))}
+                  inputMode="decimal"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    background: "var(--raised)",
+                    border: "1px solid var(--dim)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    color: "var(--white)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 8 }}>
+                  Protocol
+                </label>
+                <input
+                  value={ownerForm.protocol}
+                  onChange={(e) => setOwnerForm((prev) => ({ ...prev, protocol: e.target.value }))}
+                  placeholder="AAVE"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    background: "var(--raised)",
+                    border: "1px solid var(--dim)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    color: "var(--white)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 8 }}>
+                Authorization Mode
+              </label>
+              <select
+                value={ownerForm.authorized ? "authorize" : "deauthorize"}
+                onChange={(e) => setOwnerForm((prev) => ({ ...prev, authorized: e.target.value === "authorize" }))}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  background: "var(--raised)",
+                  border: "1px solid var(--dim)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  color: "var(--white)",
+                  outline: "none",
+                }}
+              >
+                <option value="authorize">Authorize agent wallet</option>
+                <option value="deauthorize">Revoke agent wallet</option>
+              </select>
+            </div>
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <button
                 data-interactive
+                onClick={() =>
+                  submitOwnerAction("Vault balance update", () =>
+                    writeContractAsync({
+                      address: ADDRESSES.riskRouter,
+                      abi: RISK_ROUTER_ABI,
+                      functionName: "setVaultBalance",
+                      args: [parseUnits(ownerForm.vaultBalance || "0", 18)],
+                    })
+                  )
+                }
+                disabled={!riskRouterConfigured || isPending}
                 style={{
                   padding: "12px",
                   border: "1px solid var(--dim)",
                   fontFamily: "var(--font-mono)",
                   fontSize: 10,
                   letterSpacing: 1,
-                  color: "var(--muted)",
-                  cursor: "not-allowed",
+                  color: riskRouterConfigured ? "var(--white)" : "var(--muted)",
+                  cursor: riskRouterConfigured ? "pointer" : "not-allowed",
+                  opacity: isPending ? 0.6 : 1,
                 }}
-                title="Not yet deployed"
+                title={riskRouterConfigured ? "Write vault balance" : "RiskRouter not configured"}
               >
                 Set Vault Balance
               </button>
               <button
                 data-interactive
+                onClick={() =>
+                  submitOwnerAction("Daily loss limit update", () =>
+                    writeContractAsync({
+                      address: ADDRESSES.riskRouter,
+                      abi: RISK_ROUTER_ABI,
+                      functionName: "setDailyLossLimit",
+                      args: [ownerForm.agentWallet as `0x${string}`, parseUnits(ownerForm.dailyLossLimit || "0", 18)],
+                    })
+                  )
+                }
+                disabled={!riskRouterConfigured || isPending}
                 style={{
                   padding: "12px",
                   border: "1px solid var(--dim)",
                   fontFamily: "var(--font-mono)",
                   fontSize: 10,
                   letterSpacing: 1,
-                  color: "var(--muted)",
-                  cursor: "not-allowed",
+                  color: riskRouterConfigured ? "var(--white)" : "var(--muted)",
+                  cursor: riskRouterConfigured ? "pointer" : "not-allowed",
+                  opacity: isPending ? 0.6 : 1,
                 }}
-                title="Not yet deployed"
+                title={riskRouterConfigured ? "Write daily loss limit" : "RiskRouter not configured"}
               >
                 Set Daily Loss Limit
               </button>
               <button
                 data-interactive
+                onClick={() =>
+                  submitOwnerAction(ownerForm.authorized ? "Agent authorized" : "Agent deauthorized", () =>
+                    writeContractAsync({
+                      address: ADDRESSES.riskRouter,
+                      abi: RISK_ROUTER_ABI,
+                      functionName: "setAgentAuthorized",
+                      args: [ownerForm.agentWallet as `0x${string}`, ownerForm.authorized],
+                    })
+                  )
+                }
+                disabled={!riskRouterConfigured || isPending}
                 style={{
                   padding: "12px",
                   border: "1px solid var(--dim)",
                   fontFamily: "var(--font-mono)",
                   fontSize: 10,
                   letterSpacing: 1,
-                  color: "var(--muted)",
-                  cursor: "not-allowed",
+                  color: riskRouterConfigured ? "var(--white)" : "var(--muted)",
+                  cursor: riskRouterConfigured ? "pointer" : "not-allowed",
+                  opacity: isPending ? 0.6 : 1,
                 }}
-                title="Not yet deployed"
+                title={riskRouterConfigured ? "Toggle agent authorization" : "RiskRouter not configured"}
               >
-                Authorize Agent
+                {ownerForm.authorized ? "Authorize Agent" : "Deauthorize Agent"}
               </button>
               <button
                 data-interactive
+                onClick={() =>
+                  submitOwnerAction("Protocol whitelist update", () =>
+                    writeContractAsync({
+                      address: ADDRESSES.riskRouter,
+                      abi: RISK_ROUTER_ABI,
+                      functionName: "setProtocolWhitelisted",
+                      args: [ownerForm.protocol, true],
+                    })
+                  )
+                }
+                disabled={!riskRouterConfigured || isPending}
                 style={{
                   padding: "12px",
                   border: "1px solid var(--dim)",
                   fontFamily: "var(--font-mono)",
                   fontSize: 10,
                   letterSpacing: 1,
-                  color: "var(--muted)",
-                  cursor: "not-allowed",
+                  color: riskRouterConfigured ? "var(--white)" : "var(--muted)",
+                  cursor: riskRouterConfigured ? "pointer" : "not-allowed",
+                  opacity: isPending ? 0.6 : 1,
                 }}
-                title="Not yet deployed"
+                title={riskRouterConfigured ? "Whitelist protocol" : "RiskRouter not configured"}
               >
                 Whitelist Protocol
               </button>
             </div>
             <div style={{ marginTop: 12, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--mid)" }}>
-              RiskRouter not yet deployed. Buttons will be active after deployment.
+              {riskRouterConfigured
+                ? "Writes are sent through the connected wallet. The contract owner still must sign each transaction."
+                : "RiskRouter address is missing from the frontend environment."}
             </div>
           </Card>
         )}
@@ -385,7 +599,7 @@ export default function SettingsPage() {
             data-interactive
             style={{
               padding: "14px 40px",
-              background: "var(--amber)",
+              background: "var(--apex-burn)",
               color: "var(--void)",
               fontFamily: "var(--font-mono)",
               fontSize: 11,
@@ -422,7 +636,7 @@ export default function SettingsPage() {
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ background: "var(--deep)", border: "1px solid var(--dim)", padding: 24, marginBottom: 24 }}>
-      <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 2, color: "var(--amber)", textTransform: "uppercase", marginBottom: 20 }}>
+      <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 2, color: "var(--apex-burn)", textTransform: "uppercase", marginBottom: 20 }}>
         {title}
       </h3>
       {children}

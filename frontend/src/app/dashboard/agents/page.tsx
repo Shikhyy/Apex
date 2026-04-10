@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from "recharts";
 import Topbar from "@/components/dashboard/Topbar";
 import RepScoreRing from "@/components/dashboard/RepScoreRing";
 import { useReputation } from "@/hooks/useReputation";
@@ -11,10 +10,10 @@ import type { AgentName, FeedbackEntry } from "@/lib/types";
 import { keccak256, toHex } from "viem";
 
 const agents: { name: AgentName; role: string; color: string; agentId: number; model: string }[] = [
-  { name: "scout", role: "Market Intelligence", color: "var(--blue)", agentId: 1, model: "Groq LLM" },
-  { name: "strategist", role: "Portfolio Optimization", color: "var(--purple)", agentId: 2, model: "Groq LLM" },
-  { name: "guardian", role: "Risk Enforcement", color: "var(--gold)", agentId: 3, model: "Groq LLM" },
-  { name: "executor", role: "Trade Execution", color: "var(--green)", agentId: 4, model: "On-chain" },
+  { name: "scout", role: "Market Intelligence", color: "var(--apex-cream)", agentId: 1, model: "Groq LLM" },
+  { name: "strategist", role: "Portfolio Optimization", color: "var(--apex-burn)", agentId: 2, model: "Groq LLM" },
+  { name: "guardian", role: "Risk Enforcement", color: "var(--apex-dark-red)", agentId: 3, model: "Groq LLM" },
+  { name: "executor", role: "Trade Execution", color: "var(--apex-burn)", agentId: 4, model: "On-chain" },
 ];
 
 export default function AgentsPage() {
@@ -98,7 +97,7 @@ function AgentDetailCard({
               href={`https://sepolia.basescan.org/token/${agent.agentId}`}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--amber)", textDecoration: "underline" }}
+              style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--apex-burn)", textDecoration: "underline" }}
             >
               ERC-8004 ↗
             </a>
@@ -131,7 +130,7 @@ function AgentDetailCard({
           <button
             onClick={() => setExpanded(!expanded)}
             data-interactive
-            style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--amber)", textTransform: "uppercase" }}
+            style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--apex-burn)", textTransform: "uppercase" }}
           >
             {expanded ? "Hide" : "Show"} Feedback Entries ({feedbacks.length})
           </button>
@@ -211,23 +210,12 @@ function AgentDetailCard({
 }
 
 function RepChart({ score, color }: { score: number; color: string }) {
-  const data = useMemo(() => {
-    const points = 12;
-    const base = Math.max(20, score - Math.random() * 30);
-    return Array.from({ length: points }, (_, i) => ({
-      cycle: `C${i + 1}`,
-      score: Math.min(100, Math.max(0, base + (score - base) * (i / (points - 1)) + (Math.random() - 0.5) * 10)),
-    }));
-  }, [score]);
-
   return (
-    <ResponsiveContainer width="100%" height={80}>
-      <LineChart data={data}>
-        <XAxis dataKey="cycle" tick={{ fontFamily: "var(--font-mono)", fontSize: 8, fill: "var(--mid)" }} axisLine={false} tickLine={false} />
-        <YAxis domain={[0, 100]} tick={{ fontFamily: "var(--font-mono)", fontSize: 8, fill: "var(--mid)" }} axisLine={false} tickLine={false} width={24} />
-        <Line type="monotone" dataKey="score" stroke={color} strokeWidth={2} dot={false} />
-      </LineChart>
-    </ResponsiveContainer>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 80 }}>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--mid)" }}>
+        Current score: <span style={{ color, fontWeight: 700, fontSize: 18 }}>{score}%</span>
+      </div>
+    </div>
   );
 }
 

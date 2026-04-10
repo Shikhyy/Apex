@@ -1,10 +1,10 @@
 import RevealText from "@/components/ui/RevealText";
 
 const steps = [
-  { text: "Scout → Finds opportunities", color: "var(--blue)" },
-  { text: "Strategist → Ranks & sizes", color: "var(--purple)" },
-  { text: "Guardian → Approves or vetoes", color: "var(--gold)" },
-  { text: "Executor → Deploys capital", color: "var(--green)" },
+  { text: "Scout → Finds opportunities", color: "#EED9B9" },
+  { text: "Strategist → Ranks & sizes", color: "#D53E0F" },
+  { text: "Guardian → Approves or vetoes", color: "#9B0F06" },
+  { text: "Executor → Deploys capital", color: "#D53E0F" },
 ];
 
 export default function WhatSection() {
@@ -75,7 +75,8 @@ export default function WhatSection() {
                 color: "var(--white)",
                 padding: "16px 20px",
                 borderLeft: `3px solid ${step.color}`,
-                background: "var(--deep)",
+                background: "linear-gradient(135deg, rgba(213, 62, 15, 0.12), rgba(94, 0, 6, 0.06))",
+                border: "1px solid rgba(213, 62, 15, 0.25)",
               }}
             >
               {step.text}

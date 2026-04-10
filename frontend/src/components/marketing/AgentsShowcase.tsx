@@ -7,25 +7,25 @@ const agents = [
   {
     name: "SCOUT",
     role: "Market Intelligence",
-    color: "var(--blue)",
+    color: "#EED9B9",
     desc: "Scans DeFi protocols for yield opportunities. Analyzes APY, TVL, liquidity, and risk scores across Aave, Curve, Compound.",
   },
   {
     name: "STRATEGIST",
     role: "Portfolio Optimization",
-    color: "var(--purple)",
+    color: "#D53E0F",
     desc: "Ranks opportunities, sizes positions, and constructs optimal portfolios. Balances risk vs reward using on-chain data.",
   },
   {
     name: "GUARDIAN",
     role: "Risk Enforcement",
-    color: "var(--gold)",
+    color: "#9B0F06",
     desc: "The veto power. Checks every trade against risk parameters. Can block trades that exceed volatility, drawdown, or reputation thresholds.",
   },
   {
     name: "EXECUTOR",
     role: "Trade Execution",
-    color: "var(--green)",
+    color: "#D53E0F",
     desc: "Executes approved trades on-chain. Records P&L, updates vault balance, and reports results back to the system.",
   },
 ];
@@ -86,8 +86,8 @@ function TiltCard({ agent, delay }: { agent: (typeof agents)[number]; delay: num
         onMouseLeave={handleLeave}
         style={{
           padding: 32,
-          background: "var(--deep)",
-          border: "1px solid var(--dim)",
+          background: "linear-gradient(135deg, rgba(213, 62, 15, 0.12), rgba(94, 0, 6, 0.06))",
+          border: "1px solid rgba(213, 62, 15, 0.25)",
           borderLeft: `3px solid ${agent.color}`,
           transition: "transform 100ms linear",
           transform,

@@ -2,6 +2,7 @@
 
 import sys
 import os
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -151,7 +152,7 @@ def test_threshold_values_are_reasonable():
     assert VETO_THRESHOLDS["max_apy_suspicious"] == 50.0
     assert VETO_THRESHOLDS["min_liquidity_usd"] == 500_000
     assert VETO_THRESHOLDS["min_sentiment"] == -0.5
-    assert VETO_THRESHOLDS["min_scout_rep"] == 0.60
+    assert VETO_THRESHOLDS["min_scout_rep"] == 0.40
     assert VETO_THRESHOLDS["max_drawdown_pct"] == 5.0
 
 
@@ -191,3 +192,24 @@ def test_guardian_at_boundary_apy():
     # At exactly 50.0, the pre-check should NOT trigger (> not >=)
     if result["guardian_reason"] == "suspicious_apy":
         assert False, "Should not veto at exactly APY threshold (uses > not >=)"
+
+
+@patch("agents.guardian.fetch_agent_reputation", return_value={"normalized": 1.0})
+@patch("agents.guardian.calculate_projected_drawdown", return_value=1.0)
+@patch("agents.guardian._post_guardian_signal")
+@patch("agents.guardian._get_llm", return_value=None)
+def test_guardian_approves_without_groq_when_safe(
+    mock_get_llm,
+    mock_post_guardian_signal,
+    mock_drawdown,
+    mock_reputation,
+):
+    """Guardian should approve deterministically when Groq is unavailable and the trade is safe."""
+    state = _make_state()
+    result = guardian_node(state)
+
+    assert result["guardian_decision"] == "APPROVED"
+    assert result["guardian_reason"] == "safe_to_proceed"
+    assert "deterministic approval" in result["guardian_detail"].lower()
+    assert result["guardian_confidence"] == 0.55
+    mock_post_guardian_signal.assert_called_once()

@@ -53,6 +53,7 @@ class TestExecutorNode:
         mock_exec.return_value = {
             "execution_time": 1.0,
             "actual_pnl": 10.0,
+            "tx_hash": "0xfeedbeef",
         }
 
         intents = [
@@ -68,7 +69,7 @@ class TestExecutorNode:
         state = self._make_state(intents=intents)
         result = executor_node(state)
 
-        assert result["tx_hash"].startswith("0x")
+        assert result["tx_hash"] == "0xfeedbeef"
         assert result["executed_protocol"] == "aave"
         assert result["actual_pnl"] == 10.0
         assert result["execution_error"] == ""

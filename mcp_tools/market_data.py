@@ -56,50 +56,64 @@ _MOCK_AAVE_POOLS: list[YieldOpportunity] = [
 
 
 async def fetch_aave_yields() -> list[YieldOpportunity]:
-    """Fetch Aave V3 pool data (supply APY, TVL, utilization).
+    """Fetch Aave V3 pool data using DeFi Llama API.
 
-    Tries the Aave V2 liquidity endpoint first. On any failure
-    (network, JSON, unexpected schema) returns realistic mock data
-    so the demo never breaks.
+    Uses the Llama.fi yields API which provides current market data.
+    Falls back to realistic mock data on failure.
     """
-    url = "https://aave-api-v2.aave.com/data/liquidity/v2"
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(url)
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get(
+                "https://yields.llama.fi/pools?chain=Ethereum&project=aave-v3"
+            )
             resp.raise_for_status()
             data = resp.json()
 
         pools: list[YieldOpportunity] = []
-        reserves = data.get("data", {}).get("reserves", [])
-        for r in reserves:
-            if not r.get("isActive"):
-                continue
-            symbol = r.get("symbol", "UNKNOWN")
-            supply_rate = float(r.get("liquidityRate", 0)) / 1e27
-            apy = supply_rate * 100 if supply_rate > 0 else 0.0
-            tvl = float(r.get("totalLiquidity", 0))
-            utilization = float(r.get("utilizationRate", 0)) / 1e27
+        stable_symbols = {
+            "USDC",
+            "USDT",
+            "DAI",
+            "USDE",
+            "SUSDE",
+            "GHO",
+            "RLUSD",
+            "FRAX",
+        }
 
-            if tvl < 500_000:
+        api_data = data.get("data", [])
+        if not api_data:
+            logger.warning("Aave Llama API returned no data, using mock")
+            return list(_MOCK_AAVE_POOLS)
+
+        for p in api_data:
+            symbol = p.get("symbol", "")
+            tvl = p.get("tvlUsd", 0) or 0
+            apy_raw = p.get("apy") or p.get("apyBase") or 0
+            apy = float(apy_raw) if apy_raw is not None else 0
+
+            if tvl < 500_000 or apy > 100:
                 continue
+
+            is_stable = symbol.upper() in stable_symbols
 
             pools.append(
                 YieldOpportunity(
                     protocol="aave",
                     pool=f"{symbol}-v3",
-                    apy=round(apy, 2),
+                    apy=round(apy, 2) if apy else 4.0,
                     tvl_usd=round(tvl, 2),
-                    risk_score=round(min(0.3, 0.1 + utilization * 0.2), 2),
+                    risk_score=round(0.15 if is_stable else 0.25, 2),
                     liquidity_usd=round(tvl * 0.75, 2),
                 )
             )
 
         if pools:
-            logger.info("Fetched %d Aave pools from API", len(pools))
+            logger.info("Fetched %d Aave pools from Llama API", len(pools))
             return pools
 
     except Exception as exc:
-        logger.warning("Aave API failed (%s), using mock data", exc)
+        logger.warning("Aave Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Aave pools", len(_MOCK_AAVE_POOLS))
     return list(_MOCK_AAVE_POOLS)
@@ -138,46 +152,64 @@ _MOCK_CURVE_POOLS: list[YieldOpportunity] = [
 
 
 async def fetch_curve_pools() -> list[YieldOpportunity]:
-    """Fetch Curve Finance pool data (APY, TVL).
+    """Fetch Curve Finance pool data using DeFi Llama API.
 
-    Tries the Curve registry API. Falls back to mock data on failure.
+    Uses the Llama.fi yields API which provides current pool data.
+    Falls back to realistic mock data on failure.
     """
-    url = "https://api.curve.fi/api/getPools/ethereum/main"
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(url)
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get("https://yields.llama.fi/pools?chain=Ethereum")
             resp.raise_for_status()
             data = resp.json()
 
-        pool_data = data.get("data", {}).get("poolData", [])
         pools: list[YieldOpportunity] = []
-        for p in pool_data:
-            name = p.get("name", p.get("id", "unknown"))
-            tvl = float(p.get("usdTotal", 0))
-            apy = float(p.get("gaugeRewards", [{}])[0].get("tokenPrice", 0))
-            if apy == 0:
-                apy = float(p.get("rewardAPY", 0))
+        stable_coins = {
+            "USDC",
+            "USDT",
+            "DAI",
+            "FRAX",
+            "USDD",
+            "TUSD",
+            "BUSD",
+            "MIM",
+            "CRVUSD",
+        }
 
-            if tvl < 500_000:
+        for p in data.get("data", []):
+            project = p.get("project", "")
+            if "curve" not in project.lower():
                 continue
+
+            symbol = p.get("symbol", "")
+            tvl = p.get("tvlUsd", 0) or 0
+            apy_raw = p.get("apy") or p.get("apyBase") or 0
+            apy = float(apy_raw) if apy_raw is not None else 0
+
+            if tvl < 500_000 or apy > 100:
+                continue
+
+            is_stable = any(s in symbol.upper() for s in stable_coins) or p.get(
+                "stablecoin", False
+            )
 
             pools.append(
                 YieldOpportunity(
                     protocol="curve",
-                    pool=name,
-                    apy=round(apy * 100, 2) if apy < 1 else round(apy, 2),
+                    pool=symbol,
+                    apy=round(apy, 2) if apy else 4.0,
                     tvl_usd=round(tvl, 2),
-                    risk_score=round(min(0.35, 0.1 + (1 / max(tvl, 1)) * 1e6), 2),
+                    risk_score=round(0.12 if is_stable else 0.25, 2),
                     liquidity_usd=round(tvl * 0.73, 2),
                 )
             )
 
         if pools:
-            logger.info("Fetched %d Curve pools from API", len(pools))
+            logger.info("Fetched %d Curve pools from Llama API", len(pools))
             return pools
 
     except Exception as exc:
-        logger.warning("Curve API failed (%s), using mock data", exc)
+        logger.warning("Curve Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Curve pools", len(_MOCK_CURVE_POOLS))
     return list(_MOCK_CURVE_POOLS)
@@ -283,44 +315,50 @@ _MOCK_COMPOUND_POOLS: list[YieldOpportunity] = [
 
 
 async def fetch_compound_rates() -> list[YieldOpportunity]:
-    """Fetch Compound V3 supply rates and market data.
+    """Fetch Compound V3 supply rates and market data using DeFi Llama API.
 
-    Tries the Compound API. Falls back to mock data on failure.
+    Note: Compound V2 API was shut down April 2023. Using Llama.fi for data.
+    Falls back to mock data on failure.
     """
-    url = "https://api.compound.finance/api/v2/ctoken"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(url)
+            resp = await client.get(
+                "https://yields.llama.fi/pools?chain=Ethereum&project=compound-v3"
+            )
             resp.raise_for_status()
             data = resp.json()
 
         pools: list[YieldOpportunity] = []
-        for c in data.get("cToken", []):
-            symbol = c.get("symbol", "UNKNOWN").replace("c", "")
-            supply_rate = float(c.get("supply_rate", 0))
-            apy = supply_rate * 100 if supply_rate > 0 else 0.0
-            tvl = float(c.get("total_supply", 0))
+        stable_symbols = {"USDC", "USDT", "DAI", "WETH", "WBTC"}
 
-            if tvl < 500_000:
+        for p in data.get("data", []):
+            symbol = p.get("symbol", "")
+            tvl = p.get("tvlUsd", 0) or 0
+            apy_raw = p.get("apy") or p.get("apyBase") or 0
+            apy = float(apy_raw) if apy_raw is not None else 0
+
+            if tvl < 500_000 or apy > 100:
                 continue
+
+            is_stable = symbol.upper() in stable_symbols
 
             pools.append(
                 YieldOpportunity(
                     protocol="compound",
                     pool=symbol,
-                    apy=round(apy, 2),
+                    apy=round(apy, 2) if apy else 3.5,
                     tvl_usd=round(tvl, 2),
-                    risk_score=round(min(0.3, 0.1 + (1 / max(tvl, 1)) * 1e6), 2),
+                    risk_score=round(0.14 if is_stable else 0.22, 2),
                     liquidity_usd=round(tvl * 0.80, 2),
                 )
             )
 
         if pools:
-            logger.info("Fetched %d Compound markets from API", len(pools))
+            logger.info("Fetched %d Compound pools from Llama API", len(pools))
             return pools
 
     except Exception as exc:
-        logger.warning("Compound API failed (%s), using mock data", exc)
+        logger.warning("Compound Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Compound pools", len(_MOCK_COMPOUND_POOLS))
     return list(_MOCK_COMPOUND_POOLS)

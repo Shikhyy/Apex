@@ -4,6 +4,7 @@ import { publicClient } from "./viem";
 export const ADDRESSES = {
   identityRegistry: process.env.NEXT_PUBLIC_IDENTITY_REGISTRY as Address,
   reputationRegistry: process.env.NEXT_PUBLIC_REPUTATION_REGISTRY as Address,
+  riskRouter: (process.env.NEXT_PUBLIC_RISK_ROUTER_ADDRESS || process.env.NEXT_PUBLIC_SURGE_RISK_ROUTER_ADDRESS || "") as Address,
 };
 
 export const IDENTITY_REGISTRY_ABI = [
@@ -97,6 +98,46 @@ export const REPUTATION_REGISTRY_ABI = [
       { name: "", type: "address" },
     ],
     outputs: [{ name: "", type: "uint64" }],
+  },
+] as const;
+
+export const RISK_ROUTER_ABI = [
+  {
+    name: "setVaultBalance",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "newBalance", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    name: "setDailyLossLimit",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "agentWallet", type: "address" },
+      { name: "limit", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "setAgentAuthorized",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "agentWallet", type: "address" },
+      { name: "authorized", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "setProtocolWhitelisted",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "protocol", type: "string" },
+      { name: "whitelisted", type: "bool" },
+    ],
+    outputs: [],
   },
 ] as const;
 

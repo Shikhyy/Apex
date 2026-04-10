@@ -1,0 +1,248 @@
+/* APEX Theme Override - New Color Palette */
+/* Apply APEX warm color scheme across all components */
+
+:root {
+  /* Harmony with new colors */
+  --primary: #D53E0F;
+  --primary-dark: #9B0F06;
+  --primary-darker: #5E0006;
+  --accent: #EED9B9;
+}
+
+/* Text styles with new palette */
+.text-apex-burn {
+  color: #D53E0F;
+}
+
+.text-apex-cream {
+  color: #EED9B9;
+}
+
+.text-apex-crimson {
+  color: #5E0006;
+}
+
+.text-apex-dark-red {
+  color: #9B0F06;
+}
+
+/* Background styles */
+.bg-apex-glow {
+  background: radial-gradient(circle, rgba(213, 62, 15, 0.15) 0%, transparent 70%);
+}
+
+.bg-apex-gradient {
+  background: linear-gradient(135deg, rgba(213, 62, 15, 0.1) 0%, rgba(94, 0, 6, 0.05) 100%);
+}
+
+/* Border styles with glow */
+.border-apex-burn {
+  border-color: #D53E0F;
+}
+
+.border-apex-burn-light {
+  border-color: rgba(213, 62, 15, 0.3);
+}
+
+/* Glowing border animation */
+.border-glow-apex {
+  border: 2px solid #D53E0F;
+  box-shadow: 0 0 10px rgba(213, 62, 15, 0.3), inset 0 0 10px rgba(213, 62, 15, 0.1);
+  animation: glowBorder 2s var(--ease-in-out) infinite;
+}
+
+/* Shadow utilities */
+.shadow-apex {
+  box-shadow: 0 8px 24px rgba(213, 62, 15, 0.2);
+}
+
+.shadow-apex-hover {
+  box-shadow: 0 12px 40px rgba(213, 62, 15, 0.3);
+}
+
+/* Button styles */
+.btn-apex-primary {
+  background: linear-gradient(135deg, #D53E0F 0%, #9B0F06 100%);
+  color: #EED9B9;
+  border: 2px solid #D53E0F;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  transition: all 300ms var(--ease-out);
+  cursor: pointer;
+}
+
+.btn-apex-primary:hover {
+  box-shadow: 0 12px 40px rgba(213, 62, 15, 0.4);
+  transform: translateY(-2px);
+}
+
+.btn-apex-secondary {
+  background: transparent;
+  color: #D53E0F;
+  border: 2px solid #9B0F06;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  transition: all 300ms var(--ease-out);
+  cursor: pointer;
+}
+
+.btn-apex-secondary:hover {
+  background: rgba(213, 62, 15, 0.1);
+  border-color: #D53E0F;
+  color: #EED9B9;
+  transform: translateY(-2px);
+}
+
+/* Card styles */
+.card-apex {
+  background: linear-gradient(135deg, rgba(26, 26, 26, 0.8) 0%, rgba(10, 10, 10, 0.8) 100%);
+  border: 1px solid rgba(213, 62, 15, 0.2);
+  border-radius: 12px;
+  padding: 24px;
+  backdrop-filter: blur(4px);
+  transition: all 400ms var(--ease-out);
+}
+
+.card-apex:hover {
+  border-color: rgba(213, 62, 15, 0.5);
+  box-shadow: 0 8px 32px rgba(213, 62, 15, 0.15);
+}
+
+/* Badge styles */
+.badge-apex {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(213, 62, 15, 0.1);
+  border: 1px solid rgba(213, 62, 15, 0.3);
+  color: #EED9B9;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 300ms var(--ease-out);
+}
+
+.badge-apex:hover {
+  background: rgba(213, 62, 15, 0.2);
+  border-color: #D53E0F;
+  box-shadow: 0 0 10px rgba(213, 62, 15, 0.2);
+}
+
+/* Animated underline */
+.underline-apex {
+  position: relative;
+  display: inline;
+  background: linear-gradient(90deg, #D53E0F, transparent);
+  background-size: 0 2px;
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  transition: background-size 400ms var(--ease-out);
+}
+
+.underline-apex:hover {
+  background-size: 100% 2px;
+}
+
+/* Status indicators */
+.status-active {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: pulse-burn 2s ease-in-out infinite;
+}
+
+.status-burn {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #D53E0F;
+  animation: pulse-burn 2s ease-in-out infinite;
+}
+
+/* Gradient text */
+.text-gradient-apex {
+  background: linear-gradient(90deg, #EED9B9, #D53E0F, #5E0006);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+}
+
+/* Floating animation */
+.float-apex {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Rotate animation */
+.rotate-apex {
+  animation: rotate 20s linear infinite;
+}
+
+/* Terminal text effect */
+.terminal-apex {
+  font-family: var(--font-mono);
+  color: #D53E0F;
+  text-shadow: 0 0 10px rgba(213, 62, 15, 0.5);
+  animation: terminalLine 1s ease-out forwards;
+}
+
+/* Responsive grid utilities */
+.grid-apex {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+@media (max-width: 768px) {
+  .grid-apex {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Component-specific animations */
+.component-enter {
+  animation: slideUp 600ms var(--ease-out) forwards;
+  opacity: 0;
+}
+
+.component-enter-1 { animation-delay: 100ms; }
+.component-enter-2 { animation-delay: 200ms; }
+.component-enter-3 { animation-delay: 300ms; }
+.component-enter-4 { animation-delay: 400ms; }
+.component-enter-5 { animation-delay: 500ms; }
+.component-enter-6 { animation-delay: 600ms; }
+.component-enter-7 { animation-delay: 700ms; }
+.component-enter-8 { animation-delay: 800ms; }
+.component-enter-9 { animation-delay: 900ms; }
+.component-enter-10 { animation-delay: 1000ms; }
+
+/* Dark mode optimizations */
+@media (prefers-color-scheme: dark) {
+  .card-apex {
+    background: linear-gradient(135deg, rgba(26, 26, 26, 0.9) 0%, rgba(10, 10, 10, 0.9) 100%);
+  }
+
+  .btn-apex-primary {
+    box-shadow: 0 4px 12px rgba(213, 62, 15, 0.2);
+  }
+
+  .btn-apex-primary:hover {
+    box-shadow: 0 12px 40px rgba(213, 62, 15, 0.4);
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

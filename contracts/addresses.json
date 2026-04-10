@@ -1,6 +1,7 @@
 {
   "identity_registry": "0xE6fC2495eE4207d4D8444D03D2418566e4234A36",
-  "reputation_registry": "0xeC6a0e1aB27882e222200F89D17F76ED8413C9268",
+  "reputation_registry": "0xec6A0E1aB27882E222200F89D17f76eD8413c926",
   "network": "base-sepolia",
-  "chain_id": 84532
+  "chain_id": 84532,
+  "risk_router": "0x3997f0Ed5A4389F9FA6Bb4Da6CBE9d14CdEa0BEe"
 }

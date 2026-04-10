@@ -28,9 +28,11 @@ export default function Nav() {
         alignItems: "center",
         justifyContent: "space-between",
         padding: "20px 40px",
-        background: isVeto ? "var(--white)" : "transparent",
-        backdropFilter: !isVeto ? "blur(12px)" : "none",
-        borderBottom: `1px solid ${isVeto ? "var(--dim)" : "transparent"}`,
+        background: isVeto
+          ? "linear-gradient(180deg, rgba(238, 217, 185, 0.98), rgba(238, 217, 185, 0.9))"
+          : "linear-gradient(180deg, rgba(10, 10, 10, 0.88), rgba(10, 10, 10, 0.55))",
+        backdropFilter: "blur(12px)",
+        borderBottom: `1px solid ${isVeto ? "rgba(94, 0, 6, 0.2)" : "rgba(213, 62, 15, 0.25)"}`,
         transition: "all var(--base) var(--ease-out)",
       }}
     >
@@ -46,7 +48,7 @@ export default function Nav() {
               fontSize: 11,
               letterSpacing: 2,
               textTransform: "uppercase",
-              color: pathname === l.href ? "var(--amber)" : isVeto ? "var(--void)" : "var(--muted)",
+              color: pathname === l.href ? "var(--apex-burn)" : isVeto ? "var(--apex-crimson)" : "var(--muted)",
               transition: "color var(--fast) var(--ease-out)",
             }}
           >
@@ -67,7 +69,7 @@ export default function Nav() {
             style={{
               display: "block",
               height: 2,
-              background: isVeto ? "var(--void)" : "var(--white)",
+              background: isVeto ? "var(--apex-crimson)" : "var(--apex-cream)",
               transition: "all var(--fast)",
               transform: open ? "rotate(45deg) translate(5px, 5px)" : "none",
             }}
@@ -76,7 +78,7 @@ export default function Nav() {
             style={{
               display: "block",
               height: 2,
-              background: isVeto ? "var(--void)" : "var(--white)",
+              background: isVeto ? "var(--apex-crimson)" : "var(--apex-cream)",
               transition: "all var(--fast)",
               opacity: open ? 0 : 1,
             }}
@@ -85,7 +87,7 @@ export default function Nav() {
             style={{
               display: "block",
               height: 2,
-              background: isVeto ? "var(--void)" : "var(--white)",
+              background: isVeto ? "var(--apex-crimson)" : "var(--apex-cream)",
               transition: "all var(--fast)",
               transform: open ? "rotate(-45deg) translate(5px, -5px)" : "none",
             }}
@@ -101,7 +103,7 @@ export default function Nav() {
             left: 0,
             right: 0,
             bottom: 0,
-            background: "var(--void)",
+            background: "linear-gradient(180deg, #0a0a0a, #150a0a)",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -119,7 +121,7 @@ export default function Nav() {
                 fontFamily: "var(--font-display)",
                 fontSize: 48,
                 letterSpacing: 4,
-                color: pathname === l.href ? "var(--amber)" : "var(--white)",
+                color: pathname === l.href ? "var(--apex-burn)" : "var(--apex-cream)",
               }}
             >
               {l.label}

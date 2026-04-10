@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Topbar from "@/components/dashboard/Topbar";
 import FlowPipeline from "@/components/dashboard/FlowPipeline";
 import DecisionBanner from "@/components/dashboard/DecisionBanner";
@@ -11,40 +11,40 @@ import { SkeletonCard, SkeletonStat } from "@/components/ui/Skeleton";
 import { useSSE } from "@/hooks/useSSE";
 import { useCycle } from "@/hooks/useCycle";
 import { useReputation } from "@/hooks/useReputation";
-import { fetchLog } from "@/lib/api";
+import { fetchHealth, fetchLog } from "@/lib/api";
 import type { VetoEntry, AgentName } from "@/lib/types";
 
 const agents: { name: AgentName; role: string; color: string; agentId: number }[] = [
-  { name: "scout", role: "Market Intelligence", color: "var(--blue)", agentId: 1 },
-  { name: "strategist", role: "Portfolio Optimization", color: "var(--purple)", agentId: 2 },
-  { name: "guardian", role: "Risk Enforcement", color: "var(--gold)", agentId: 3 },
-  { name: "executor", role: "Trade Execution", color: "var(--green)", agentId: 4 },
+  { name: "scout", role: "Market Intelligence", color: "var(--apex-cream)", agentId: 1 },
+  { name: "strategist", role: "Portfolio Optimization", color: "var(--apex-burn)", agentId: 2 },
+  { name: "guardian", role: "Risk Enforcement", color: "var(--apex-dark-red)", agentId: 3 },
+  { name: "executor", role: "Trade Execution", color: "var(--apex-burn)", agentId: 4 },
 ];
+
+function useAllReputations() {
+  const scout = useReputation(BigInt(1));
+  const strategist = useReputation(BigInt(2));
+  const guardian = useReputation(BigInt(3));
+  const executor = useReputation(BigInt(4));
+  return [scout, strategist, guardian, executor];
+}
 
 export default function DashboardPage() {
   const { events, connected } = useSSE("/api/stream");
-  const { state, triggerCycle: runCycle, updateFromSSE } = useCycle();
+  const { state, updateFromSSE } = useCycle();
   const [vetoLog, setVetoLog] = useState<VetoEntry[]>([]);
-  const [dataLoaded, setDataLoaded] = useState(false);
+  const [automationEnabled, setAutomationEnabled] = useState(true);
+  const [automationRunning, setAutomationRunning] = useState(false);
+  const reputations = useAllReputations();
 
-  const reputations = agents.map((a) => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const rep = useReputation(BigInt(a.agentId));
-    return rep;
-  });
-
-  useEffect(() => {
-    if (reputations.every((r) => !r.loading)) {
-      setDataLoaded(true);
-    }
-  }, [reputations]);
+  const dataLoaded = reputations.every((r) => !r.loading);
 
   useEffect(() => {
     if (events.length === 0) return;
     const latest = events[events.length - 1];
     updateFromSSE(latest.type, latest.data);
 
-    if (latest.type === "guardian" && latest.data.guardian_decision === "vetoed") {
+    if (latest.type === "guardian" && String(latest.data.guardian_decision).toUpperCase() === "VETOED") {
       setVetoLog((prev) => [
         {
           timestamp: latest.timestamp,
@@ -62,7 +62,7 @@ export default function DashboardPage() {
     fetchLog()
       .then((data) => {
         const vetoes: VetoEntry[] = data.cycles
-          .filter((c) => c.node === "guardian" && (c.data as Record<string, unknown>).guardian_decision === "vetoed")
+          .filter((c) => c.node === "guardian" && String((c.data as Record<string, unknown>).guardian_decision).toUpperCase() === "VETOED")
           .map((c) => ({
             timestamp: c.timestamp,
             reason: (c.data.guardian_reason as string) || "unknown",
@@ -75,27 +75,40 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  const handleRunCycle = useCallback(async () => {
-    try {
-      await runCycle();
-    } catch {
-      // Already handled in hook
-    }
-  }, [runCycle]);
+  useEffect(() => {
+    fetchHealth()
+      .then((health) => {
+        if (typeof health.autotrader_enabled === "boolean") {
+          setAutomationEnabled(health.autotrader_enabled);
+        }
+        if (typeof health.autotrader_running === "boolean") {
+          setAutomationRunning(health.autotrader_running);
+        }
+      })
+      .catch(() => {
+        setAutomationEnabled(true);
+        setAutomationRunning(false);
+      });
+  }, []);
 
   const sessionMetrics = useMemo(
     () => [
       { label: "Session PnL", value: `$${state.sessionPnl.toFixed(2)}`, color: state.sessionPnl >= 0 ? "var(--green)" : "var(--red)" as const },
       { label: "Vetoes", value: String(state.vetoCount), color: "var(--red)" as const },
       { label: "Approvals", value: String(state.approvalCount), color: "var(--green)" as const },
-      { label: "Cycle #", value: String(state.cycleNumber), color: "var(--amber)" as const },
+      { label: "Cycle #", value: String(state.cycleNumber), color: "var(--apex-burn)" as const },
     ],
     [state.sessionPnl, state.vetoCount, state.approvalCount, state.cycleNumber]
   );
 
   return (
     <>
-      <Topbar title="Cycle Monitor" connected={connected} onRunCycle={handleRunCycle} />
+      <Topbar
+        title="Cycle Monitor"
+        connected={connected}
+        automationEnabled={automationEnabled}
+        automationRunning={automationRunning}
+      />
 
       {state.decision ? (
         <DecisionBanner decision={state.decision} />
@@ -103,7 +116,7 @@ export default function DashboardPage() {
         <FlowPipeline activeNode={state.activeNode} decision={null} />
       )}
 
-      {/* Agent Cards — skeleton until data loaded */}
+      {/* Agent Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, padding: "0 32px 32px" }}>
         {!dataLoaded
           ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
@@ -127,7 +140,7 @@ export default function DashboardPage() {
             ))}
       </div>
 
-      {/* Session Metrics — skeleton until data loaded */}
+      {/* Session Metrics */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, padding: "0 32px 32px" }}>
         {!dataLoaded
           ? Array.from({ length: 4 }).map((_, i) => <SkeletonStat key={i} />)
@@ -151,7 +164,7 @@ export default function DashboardPage() {
               Recent Vetoes
             </div>
             {vetoLog.length > 5 && (
-              <a href="/dashboard/veto-log" style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--amber)" }}>
+              <a href="/dashboard/veto-log" style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--apex-burn)" }}>
                 View all →
               </a>
             )}

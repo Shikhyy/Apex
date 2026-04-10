@@ -17,19 +17,19 @@ const config = getDefaultConfig({
 
 const queryClient = new QueryClient();
 
+const apexTheme = darkTheme({
+  accentColor: "#D53E0F",
+  accentColorForeground: "#EED9B9",
+  borderRadius: "none",
+  fontStack: "system",
+  overlayBlur: "large",
+});
+
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider
-          theme={darkTheme({
-            accentColor: "#e8ff00",
-            accentColorForeground: "#0a0a0a",
-            borderRadius: "none",
-            fontStack: "system",
-          })}
-          modalSize="compact"
-        >
+        <RainbowKitProvider theme={apexTheme} modalSize="compact">
           {children}
         </RainbowKitProvider>
       </QueryClientProvider>

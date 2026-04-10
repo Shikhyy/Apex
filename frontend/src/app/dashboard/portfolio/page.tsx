@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { useState, useEffect } from "react";
+import { useAccount } from "wagmi";
 import Topbar from "@/components/dashboard/Topbar";
 import PnLChart from "@/components/dashboard/PnLChart";
-import { fetchMarketPrices, fetchAerodromePools, fetchLog } from "@/lib/api";
+import { fetchAerodromePools, fetchLog } from "@/lib/api";
 
 interface Position {
   protocol: string;
@@ -17,21 +17,21 @@ interface Position {
 
 interface Trade {
   timestamp: string;
-  action: "DEPOSIT" | "WITHDRAW" | "REBALANCE";
+  action: string;
   protocol: string;
   amount: number;
   pnl: number;
   txHash: string;
 }
 
-const riskColors = {
+const riskColors: Record<string, string> = {
   Low: "var(--green)",
-  Medium: "var(--amber)",
+  Medium: "var(--apex-burn)",
   High: "var(--red)",
 };
 
 export default function PortfolioPage() {
-  const [connected] = useState(true);
+  const { isConnected } = useAccount();
   const [positions, setPositions] = useState<Position[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [pnlData, setPnlData] = useState<Array<{ time: string; pnl: number }>>([]);
@@ -39,45 +39,56 @@ export default function PortfolioPage() {
   const [sessionPnl, setSessionPnl] = useState(0);
 
   useEffect(() => {
-    Promise.all([fetchMarketPrices(), fetchAerodromePools(), fetchLog()])
-      .then(([_prices, pools, log]) => {
-        const pos: Position[] = pools.pools.slice(0, 4).map((p) => ({
-          protocol: p.protocol,
-          pool: p.pool,
-          amount: p.tvl_usd,
-          apy: p.apy,
-          unrealizedPnl: Math.random() * 200 - 50,
-          riskLevel: p.risk_score < 0.3 ? "Low" : p.risk_score < 0.6 ? "Medium" : "High",
-        }));
+    Promise.all([fetchAerodromePools(), fetchLog()])
+      .then(([pools, log]) => {
+        const sortedCycles = [...log.cycles]
+          .filter((c: { data: Record<string, unknown> }) => c.data.actual_pnl !== undefined)
+          .sort((a: { timestamp: string }, b: { timestamp: string }) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        const pos: Position[] = pools.pools
+          .filter((p: { tvl_usd: number }) => p.tvl_usd > 0)
+          .slice(0, 4)
+          .map((p: { protocol: string; pool: string; tvl_usd: number; apy: number; risk_score: number }) => ({
+            protocol: p.protocol,
+            pool: p.pool,
+            amount: p.tvl_usd,
+            apy: p.apy,
+            unrealizedPnl: 0,
+            riskLevel: p.risk_score < 0.3 ? "Low" : p.risk_score < 0.6 ? "Medium" : "High",
+          }));
         setPositions(pos);
 
-        const t: Trade[] = log.cycles.slice(0, 10).map((c, i) => ({
-          timestamp: c.timestamp,
-          action: (["DEPOSIT", "WITHDRAW", "REBALANCE"] as const)[i % 3],
-          protocol: (c.data.protocol as string) || "Compound",
-          amount: Number(c.data.amount_usd || Math.random() * 10000),
-          pnl: Number(c.data.actual_pnl || (Math.random() * 300 - 100)),
-          txHash: (c.data.tx_hash as string) || `0x${Math.random().toString(16).slice(2, 10)}...`,
-        }));
+        const t: Trade[] = [...sortedCycles]
+          .filter((c: { data: Record<string, unknown> }) => c.data.tx_hash !== undefined)
+          .slice(-10)
+          .reverse()
+          .map((c: { timestamp: string; data: Record<string, unknown>; node: string }) => ({
+            timestamp: c.timestamp,
+            action: c.node.toUpperCase(),
+            protocol: (c.data.protocol as string) || "—",
+            amount: Number(c.data.amount_usd || 0),
+            pnl: Number(c.data.actual_pnl || 0),
+            txHash: (c.data.tx_hash as string) || "",
+          }));
         setTrades(t);
 
-        const pnlPoints = log.cycles
-          .filter((c) => c.data.actual_pnl !== undefined)
-          .map((c, i) => ({
+        let runningPnl = 0;
+        const pnlPoints = sortedCycles.map((c: { data: Record<string, unknown> }, i: number) => {
+          runningPnl += Number(c.data.actual_pnl || 0);
+          return {
             time: `#${i + 1}`,
-            pnl: Number(c.data.actual_pnl),
-          }));
+            pnl: runningPnl,
+          };
+        });
         setPnlData(pnlPoints);
 
-        const lastPnl = pnlPoints.length > 0 ? pnlPoints[pnlPoints.length - 1].pnl : 0;
-        setSessionPnl(lastPnl);
+        setSessionPnl(runningPnl);
       })
       .catch(() => {
-        setPositions([
-          { protocol: "Aave", pool: "USDC", amount: 50000, apy: 4.2, unrealizedPnl: 127.5, riskLevel: "Low" },
-          { protocol: "Curve", pool: "3pool", amount: 30000, apy: 3.8, unrealizedPnl: -45.2, riskLevel: "Low" },
-          { protocol: "Compound", pool: "USDC", amount: 25000, apy: 5.1, unrealizedPnl: 89.3, riskLevel: "Medium" },
-        ]);
+        setPositions([]);
+        setTrades([]);
+        setPnlData([]);
+        setSessionPnl(0);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -89,7 +100,7 @@ export default function PortfolioPage() {
 
   return (
     <>
-      <Topbar title="Portfolio & Yield" connected={connected} />
+      <Topbar title="Portfolio & Yield" connected={isConnected} />
       <main style={{ padding: 32 }}>
         {/* Session PnL Counter */}
         <div style={{ marginBottom: 32 }}>
@@ -101,7 +112,7 @@ export default function PortfolioPage() {
               fontFamily: "var(--font-mono)",
               fontSize: 56,
               fontWeight: 700,
-              color: sessionPnl >= 0 ? "var(--amber)" : "var(--red)",
+              color: sessionPnl >= 0 ? "var(--apex-burn)" : "var(--red)",
               lineHeight: 1,
             }}
           >
@@ -115,24 +126,26 @@ export default function PortfolioPage() {
         </div>
 
         {/* Risk Metrics */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
-          {[
-            { label: "Total Allocated", value: `$${totalAllocated.toLocaleString()}`, color: "var(--white)" as const, sparkColor: "var(--amber)" },
-            { label: "Unrealized PnL", value: `$${totalUnrealized.toFixed(2)}`, color: totalUnrealized >= 0 ? "var(--green)" as const : "var(--red)" as const, sparkColor: totalUnrealized >= 0 ? "var(--green)" : "var(--red)" },
-            { label: "Avg APY", value: `${avgApy.toFixed(1)}%`, color: "var(--white)" as const, sparkColor: "var(--amber)" },
-            { label: "Win Rate", value: `${winRate}%`, color: "var(--white)" as const, sparkColor: winRate > 50 ? "var(--green)" : "var(--red)" },
-          ].map((m) => (
-            <div key={m.label} style={{ padding: 20, background: "var(--deep)", border: "1px solid var(--dim)" }}>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, color: "var(--mid)", marginBottom: 8, textTransform: "uppercase" }}>
-                {m.label}
+        {positions.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
+            {[
+              { label: "Total Allocated", value: `$${totalAllocated.toLocaleString()}`, color: "var(--white)" as const, sparkColor: "var(--apex-burn)" as const },
+              { label: "Unrealized PnL", value: `$${totalUnrealized.toFixed(2)}`, color: totalUnrealized >= 0 ? "var(--green)" as const : "var(--red)" as const, sparkColor: totalUnrealized >= 0 ? "var(--green)" as const : "var(--red)" as const },
+              { label: "Avg APY", value: `${avgApy.toFixed(1)}%`, color: "var(--white)" as const, sparkColor: "var(--apex-burn)" as const },
+              { label: "Win Rate", value: `${winRate}%`, color: "var(--white)" as const, sparkColor: winRate > 50 ? "var(--green)" as const : "var(--red)" as const },
+            ].map((m) => (
+              <div key={m.label} style={{ padding: 20, background: "var(--deep)", border: "1px solid var(--dim)" }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, color: "var(--mid)", marginBottom: 8, textTransform: "uppercase" }}>
+                  {m.label}
+                </div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 24, fontWeight: 700, color: m.color, lineHeight: 1 }}>
+                  {m.value}
+                </div>
+                <Sparkline color={m.sparkColor} />
               </div>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 24, fontWeight: 700, color: m.color, lineHeight: 1 }}>
-                {m.value}
-              </div>
-              <Sparkline color={m.sparkColor} />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Active Positions */}
         <div style={{ marginBottom: 32 }}>
@@ -185,7 +198,7 @@ export default function PortfolioPage() {
                   <span style={{ color: "var(--white)" }}>{p.protocol}</span>
                   <span style={{ color: "var(--muted)" }}>{p.pool}</span>
                   <span style={{ color: "var(--white)", textAlign: "right" }}>${p.amount.toLocaleString()}</span>
-                  <span style={{ color: "var(--amber)", textAlign: "right" }}>{p.apy}%</span>
+                  <span style={{ color: "var(--apex-burn)", textAlign: "right" }}>{p.apy}%</span>
                   <span style={{ color: p.unrealizedPnl >= 0 ? "var(--green)" : "var(--red)", textAlign: "right" }}>
                     {p.unrealizedPnl >= 0 ? "+" : ""}${p.unrealizedPnl.toFixed(2)}
                   </span>
@@ -245,7 +258,7 @@ export default function PortfolioPage() {
                   <span style={{ color: "var(--muted)" }}>
                     {new Date(t.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
-                  <span style={{ color: t.action === "DEPOSIT" ? "var(--green)" : t.action === "WITHDRAW" ? "var(--red)" : "var(--amber)" }}>
+                  <span style={{ color: "var(--apex-burn)" }}>
                     {t.action}
                   </span>
                   <span style={{ color: "var(--white)" }}>{t.protocol}</span>
@@ -253,14 +266,18 @@ export default function PortfolioPage() {
                   <span style={{ color: t.pnl >= 0 ? "var(--green)" : "var(--red)", textAlign: "right" }}>
                     {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}
                   </span>
-                  <a
-                    href={`https://sepolia.basescan.org/tx/${t.txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "var(--amber)", textAlign: "right", fontSize: 10 }}
-                  >
-                    BaseScan ↗
-                  </a>
+                  {t.txHash ? (
+                    <a
+                      href={`https://sepolia.basescan.org/tx/${t.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "var(--apex-burn)", textAlign: "right", fontSize: 10 }}
+                    >
+                      BaseScan ↗
+                    </a>
+                  ) : (
+                    <span style={{ color: "var(--mid)", textAlign: "right", fontSize: 10 }}>—</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -281,23 +298,11 @@ export default function PortfolioPage() {
 }
 
 function Sparkline({ color }: { color: string }) {
-  const data = useMemo(() => {
-    const points = 20;
-    const values: number[] = [];
-    let v = 50;
-    for (let i = 0; i < points; i++) {
-      v += (Math.random() - 0.45) * 15;
-      v = Math.max(10, Math.min(90, v));
-      values.push(v);
-    }
-    return values.map((v, i) => ({ i, v }));
-  }, []);
-
   return (
-    <ResponsiveContainer width="100%" height={30} style={{ marginTop: 8 }}>
-      <AreaChart data={data}>
-        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill="transparent" dot={false} />
-      </AreaChart>
-    </ResponsiveContainer>
+    <div style={{ marginTop: 8, height: 30, display: "flex", alignItems: "center" }}>
+      <div style={{ width: "100%", height: 2, background: "var(--dim)" }}>
+        <div style={{ width: "100%", height: "100%", background: color }} />
+      </div>
+    </div>
   );
 }

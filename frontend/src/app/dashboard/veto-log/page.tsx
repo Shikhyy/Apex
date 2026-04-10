@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAccount } from "wagmi";
 import Topbar from "@/components/dashboard/Topbar";
 import VetoRow from "@/components/dashboard/VetoRow";
 import { fetchLog } from "@/lib/api";
 import type { VetoEntry } from "@/lib/types";
 
 export default function VetoLogPage() {
-  const [connected] = useState(true);
+  const { isConnected } = useAccount();
   const [vetoes, setVetoes] = useState<VetoEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterReason, setFilterReason] = useState<string>("all");
@@ -17,7 +18,7 @@ export default function VetoLogPage() {
     fetchLog()
       .then((data) => {
         const entries: VetoEntry[] = data.cycles
-          .filter((c) => c.node === "guardian" && (c.data as Record<string, unknown>).guardian_decision === "vetoed")
+          .filter((c) => c.node === "guardian" && String((c.data as Record<string, unknown>).guardian_decision).toUpperCase() === "VETOED")
           .map((c) => ({
             timestamp: c.timestamp,
             reason: (c.data.guardian_reason as string) || "unknown",
@@ -62,7 +63,7 @@ export default function VetoLogPage() {
 
   return (
     <>
-      <Topbar title="Veto Log" connected={connected} />
+      <Topbar title="Veto Log" connected={isConnected} />
       <main style={{ padding: 32 }}>
         {/* Stats Row */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
@@ -121,7 +122,7 @@ export default function VetoLogPage() {
               onChange={(e) => setFilterConfidence(Number(e.target.value) / 100)}
               style={{ width: 120 }}
             />
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--amber)" }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--apex-burn)" }}>
               {Math.round(filterConfidence * 100)}%
             </span>
           </div>
@@ -152,11 +153,11 @@ export default function VetoLogPage() {
               data-interactive
               style={{
                 padding: "8px 16px",
-                border: "1px solid var(--amber)",
+                border: "1px solid var(--apex-burn)",
                 fontFamily: "var(--font-mono)",
                 fontSize: 10,
                 letterSpacing: 1,
-                color: "var(--amber)",
+                color: "var(--apex-burn)",
               }}
             >
               Export CSV

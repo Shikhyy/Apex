@@ -1,0 +1,26 @@
+{
+  "name": "apex-video",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion render ApexWalkthrough out/video.mp4",
+    "build:demo": "remotion render ApexDemo90 out/apex-demo-90s.mp4",
+    "capture:demo": "node scripts/capture-demo-assets.mjs",
+    "preview": "remotion preview"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.447",
+    "@remotion/fonts": "4.0.447",
+    "@remotion/google-fonts": "4.0.447",
+    "@remotion/player": "4.0.447",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "remotion": "4.0.447"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "playwright": "^1.59.1",
+    "typescript": "^5.0.0"
+  }
+}

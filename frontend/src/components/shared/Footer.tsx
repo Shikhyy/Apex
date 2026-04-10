@@ -10,7 +10,8 @@ export default function Footer() {
   return (
     <footer
       style={{
-        borderTop: "1px solid var(--dim)",
+        borderTop: "1px solid rgba(213, 62, 15, 0.25)",
+        background: "linear-gradient(180deg, rgba(10, 10, 10, 0.5), rgba(20, 10, 10, 0.8))",
         padding: "40px",
         display: "flex",
         justifyContent: "space-between",
@@ -32,7 +33,7 @@ export default function Footer() {
               color: "var(--muted)",
               transition: "color var(--fast) var(--ease-out)",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--amber)")}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--apex-burn)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
           >
             {l.label}

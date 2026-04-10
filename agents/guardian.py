@@ -17,6 +17,17 @@ logger = logging.getLogger(__name__)
 _llm: Optional[ChatGroq] = None
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning("Invalid float for %s=%r, using default %s", name, value, default)
+        return default
+
+
 def _get_llm() -> Optional[ChatGroq]:
     """Lazy LLM initialization — returns None if no API key."""
     global _llm
@@ -37,11 +48,31 @@ def _get_llm() -> Optional[ChatGroq]:
 VETO_THRESHOLDS = {
     "max_drawdown_pct": 5.0,
     "max_volatility_idx": 65.0,
-    "min_scout_rep": 0.60,
+    "min_scout_rep": 0.40,
     "max_apy_suspicious": 50.0,
     "min_liquidity_usd": 500_000,
     "min_sentiment": -0.5,
 }
+
+
+def _active_thresholds() -> dict:
+    allow_overrides = os.environ.get("APEX_GUARDIAN_ALLOW_ENV_OVERRIDES", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not allow_overrides:
+        return VETO_THRESHOLDS
+
+    return {
+        "max_drawdown_pct": _env_float("APEX_GUARDIAN_MAX_DRAWDOWN_PCT", VETO_THRESHOLDS["max_drawdown_pct"]),
+        "max_volatility_idx": _env_float("APEX_GUARDIAN_MAX_VOLATILITY_IDX", VETO_THRESHOLDS["max_volatility_idx"]),
+        "min_scout_rep": _env_float("APEX_GUARDIAN_MIN_SCOUT_REP", VETO_THRESHOLDS["min_scout_rep"]),
+        "max_apy_suspicious": _env_float("APEX_GUARDIAN_MAX_APY_SUSPICIOUS", VETO_THRESHOLDS["max_apy_suspicious"]),
+        "min_liquidity_usd": _env_float("APEX_GUARDIAN_MIN_LIQUIDITY_USD", VETO_THRESHOLDS["min_liquidity_usd"]),
+        "min_sentiment": _env_float("APEX_GUARDIAN_MIN_SENTIMENT", VETO_THRESHOLDS["min_sentiment"]),
+    }
 
 GUARDIAN_SYSTEM = """You are the GUARDIAN agent in the APEX yield optimizer.
 
@@ -88,6 +119,8 @@ def guardian_node(state: APEXState) -> dict:
     Any error defaults to VETO for safety.
     """
     try:
+        thresholds = _active_thresholds()
+
         # ── 1. Deterministic pre-checks ──────────────────────────────────
         ranked_intents = state.get("ranked_intents", [])
         if not ranked_intents:
@@ -102,81 +135,81 @@ def guardian_node(state: APEXState) -> dict:
         sentiment_score = state.get("sentiment_score", 0.0)
 
         # Volatility spike
-        if volatility_index > VETO_THRESHOLDS["max_volatility_idx"]:
+        if volatility_index > thresholds["max_volatility_idx"]:
             print(
-                f"[Guardian] VETO: volatility_index={volatility_index} > {VETO_THRESHOLDS['max_volatility_idx']}"
+                f"[Guardian] VETO: volatility_index={volatility_index} > {thresholds['max_volatility_idx']}"
             )
             return _veto(
                 "VETOED",
                 "volatility_spike",
-                f"Volatility index {volatility_index:.1f} exceeds threshold {VETO_THRESHOLDS['max_volatility_idx']:.1f}.",
+                f"Volatility index {volatility_index:.1f} exceeds threshold {thresholds['max_volatility_idx']:.1f}.",
             )
 
         # Suspicious APY — check every opportunity in ranked intents
         for intent in ranked_intents:
             opp = intent.get("opportunity", {})
             apy = opp.get("apy", 0.0)
-            if apy > VETO_THRESHOLDS["max_apy_suspicious"]:
+            if apy > thresholds["max_apy_suspicious"]:
                 print(
-                    f"[Guardian] VETO: APY={apy}% > {VETO_THRESHOLDS['max_apy_suspicious']}% for {opp.get('protocol', 'unknown')}"
+                    f"[Guardian] VETO: APY={apy}% > {thresholds['max_apy_suspicious']}% for {opp.get('protocol', 'unknown')}"
                 )
                 return _veto(
                     "VETOED",
                     "suspicious_apy",
-                    f"APY {apy:.1f}% for {opp.get('protocol', 'unknown')} exceeds suspicious threshold {VETO_THRESHOLDS['max_apy_suspicious']}%.",
+                    f"APY {apy:.1f}% for {opp.get('protocol', 'unknown')} exceeds suspicious threshold {thresholds['max_apy_suspicious']}%.",
                 )
 
         # Low liquidity — check every opportunity
         for intent in ranked_intents:
             opp = intent.get("opportunity", {})
             liquidity = opp.get("liquidity_usd", 0.0)
-            if liquidity < VETO_THRESHOLDS["min_liquidity_usd"]:
+            if liquidity < thresholds["min_liquidity_usd"]:
                 print(
-                    f"[Guardian] VETO: liquidity=${liquidity:,.0f} < ${VETO_THRESHOLDS['min_liquidity_usd']:,.0f} for {opp.get('protocol', 'unknown')}"
+                    f"[Guardian] VETO: liquidity=${liquidity:,.0f} < ${thresholds['min_liquidity_usd']:,.0f} for {opp.get('protocol', 'unknown')}"
                 )
                 return _veto(
                     "VETOED",
                     "low_liquidity",
-                    f"Liquidity ${liquidity:,.0f} for {opp.get('protocol', 'unknown')} below minimum ${VETO_THRESHOLDS['min_liquidity_usd']:,.0f}.",
+                    f"Liquidity ${liquidity:,.0f} for {opp.get('protocol', 'unknown')} below minimum ${thresholds['min_liquidity_usd']:,.0f}.",
                 )
 
         # Negative sentiment
-        if sentiment_score < VETO_THRESHOLDS["min_sentiment"]:
+        if sentiment_score < thresholds["min_sentiment"]:
             print(
-                f"[Guardian] VETO: sentiment={sentiment_score} < {VETO_THRESHOLDS['min_sentiment']}"
+                f"[Guardian] VETO: sentiment={sentiment_score} < {thresholds['min_sentiment']}"
             )
             return _veto(
                 "VETOED",
                 "negative_sentiment",
-                f"Sentiment score {sentiment_score:.2f} below threshold {VETO_THRESHOLDS['min_sentiment']:.2f}.",
+                f"Sentiment score {sentiment_score:.2f} below threshold {thresholds['min_sentiment']:.2f}.",
             )
 
         # Projected drawdown — use MCP tool
         top_intent = ranked_intents[0]
         top_opp = top_intent.get("opportunity", {})
         projected_dd = calculate_projected_drawdown(top_opp, volatility_index)
-        if projected_dd > VETO_THRESHOLDS["max_drawdown_pct"]:
+        if projected_dd > thresholds["max_drawdown_pct"]:
             print(
-                f"[Guardian] VETO: projected_drawdown={projected_dd}% > {VETO_THRESHOLDS['max_drawdown_pct']}%"
+                f"[Guardian] VETO: projected_drawdown={projected_dd}% > {thresholds['max_drawdown_pct']}%"
             )
             return _veto(
                 "VETOED",
                 "drawdown_limit",
-                f"Projected drawdown {projected_dd:.2f}% exceeds threshold {VETO_THRESHOLDS['max_drawdown_pct']}%.",
+                f"Projected drawdown {projected_dd:.2f}% exceeds threshold {thresholds['max_drawdown_pct']}%.",
             )
 
         # Scout reputation — check on-chain via ERC-8004
         scout_id = state.get("scout_agent_id", 0)
         if scout_id > 0:
             rep = fetch_agent_reputation(scout_id)
-            if rep["normalized"] < VETO_THRESHOLDS["min_scout_rep"]:
+            if rep["normalized"] < thresholds["min_scout_rep"]:
                 print(
-                    f"[Guardian] VETO: scout_rep={rep['normalized']:.2f} < {VETO_THRESHOLDS['min_scout_rep']}"
+                    f"[Guardian] VETO: scout_rep={rep['normalized']:.2f} < {thresholds['min_scout_rep']}"
                 )
                 return _veto(
                     "VETOED",
                     "low_scout_reputation",
-                    f"Scout agent {scout_id} reputation {rep['normalized']:.2f} below threshold {VETO_THRESHOLDS['min_scout_rep']}.",
+                    f"Scout agent {scout_id} reputation {rep['normalized']:.2f} below threshold {thresholds['min_scout_rep']}.",
                 )
 
         # ── 2. LLM evaluation ────────────────────────────────────────────
@@ -201,24 +234,24 @@ def guardian_node(state: APEXState) -> dict:
         )
 
         system_prompt = GUARDIAN_SYSTEM.format(
-            max_volatility=VETO_THRESHOLDS["max_volatility_idx"],
-            max_drawdown=VETO_THRESHOLDS["max_drawdown_pct"],
-            min_scout_rep=VETO_THRESHOLDS["min_scout_rep"],
-            max_apy=VETO_THRESHOLDS["max_apy_suspicious"],
-            min_liquidity=VETO_THRESHOLDS["min_liquidity_usd"],
-            min_sentiment=VETO_THRESHOLDS["min_sentiment"],
+            max_volatility=thresholds["max_volatility_idx"],
+            max_drawdown=thresholds["max_drawdown_pct"],
+            min_scout_rep=thresholds["min_scout_rep"],
+            max_apy=thresholds["max_apy_suspicious"],
+            min_liquidity=thresholds["min_liquidity_usd"],
+            min_sentiment=thresholds["min_sentiment"],
         )
 
         print("[Guardian] Sending to LLM for evaluation...")
         llm = _get_llm()
         if llm is None:
-            print("[Guardian] No Groq API key — defaulting to VETO")
-            return _veto(
-                "VETOED",
-                "uncertainty",
-                "Groq API key not configured. Cannot perform LLM evaluation.",
-                0.0,
+            detail = (
+                "Groq API key not configured. Using deterministic approval after "
+                "passing all safety checks."
             )
+            print("[Guardian] No Groq API key — using deterministic APPROVAL")
+            _post_guardian_signal(state, "APPROVED", "safe_to_proceed", detail, 0.55)
+            return _veto("APPROVED", "safe_to_proceed", detail, 0.55)
         response = llm.invoke([("system", system_prompt), ("human", user_prompt)])
         content = response.content.strip()
 

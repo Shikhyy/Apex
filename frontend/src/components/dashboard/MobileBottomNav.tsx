@@ -22,8 +22,8 @@ export default function MobileBottomNav() {
         bottom: 0,
         left: 0,
         right: 0,
-        background: "var(--deep)",
-        borderTop: "1px solid var(--dim)",
+        background: "linear-gradient(180deg, rgba(13, 13, 13, 0.98), rgba(94, 0, 6, 0.22))",
+        borderTop: "1px solid rgba(213, 62, 15, 0.25)",
         zIndex: 100,
         padding: "8px 0 env(safe-area-inset-bottom, 8px)",
       }}
@@ -43,7 +43,7 @@ export default function MobileBottomNav() {
                 alignItems: "center",
                 gap: 4,
                 padding: "8px 12px",
-                color: active ? "var(--amber)" : "var(--muted)",
+                color: active ? "var(--apex-burn)" : "var(--muted)",
                 transition: "color var(--fast)",
               }}
             >

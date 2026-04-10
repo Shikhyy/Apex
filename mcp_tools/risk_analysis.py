@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # --- Constants ---
 
 BASE_SEPOLIA_RPC = "https://sepolia.base.org"
-DEFAULT_REGISTRY_ADDRESS = "0xeC6a0e1aB27882e222200F89D17F76ED8413C9268"
+DEFAULT_REGISTRY_ADDRESS = "0xec6A0E1aB27882E222200F89D17f76eD8413c926"
 
 REGISTRY_ABI = [
     {

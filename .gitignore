@@ -28,6 +28,9 @@ env/
 .env.*.local
 
 # Node
+node_modules/
+out/
+.superpowers/
 frontend/node_modules/
 frontend/.next/
 frontend/out/
@@ -37,6 +40,9 @@ frontend/out/
 .idea/
 *.swp
 *.swo
+
+# Worktrees
+.worktrees/
 
 # OS
 Thumbs.db

@@ -11,8 +11,14 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+  /* Import new APEX theme */
+  @import './theme.css';
+
 body {
-  background: var(--void);
+  background:
+    radial-gradient(1200px 700px at 80% -20%, rgba(155, 15, 6, 0.22), transparent 60%),
+    radial-gradient(900px 500px at -10% 20%, rgba(94, 0, 6, 0.2), transparent 55%),
+    var(--void);
   color: var(--white);
   font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 14px;
@@ -46,13 +52,22 @@ img, svg {
   --dim:    #1e1e1e;
   --mid:    #555555;
   --muted:  #888888;
-  --white:  #f0ede8;
-  --amber:  #e8ff00;
-  --blue:   #60a5fa;
-  --purple: #a78bfa;
-  --gold:   #f59e0b;
+  --white:  #EED9B9;
+  --text-ghost: #333333;
+  --amber:  #D53E0F;
+  --blue:   #EED9B9;
+  --purple: #D53E0F;
+  --gold:   #9B0F06;
   --green:  #34d399;
   --red:    #f87171;
+
+    /* New Warm Palette - APEX Revamp */
+    --apex-crimson:     #5E0006;    /* Deep crimson - primary dark */
+    --apex-dark-red:    #9B0F06;    /* Dark red - secondary dark */
+    --apex-burn:        #D53E0F;    /* Burnt orange - action/highlight */
+    --apex-cream:       #EED9B9;    /* Cream - text/light accent */
+    --apex-glow:        rgba(213, 62, 15, 0.15);  /* Glow effect */
+    --apex-glow-bright: rgba(213, 62, 15, 0.3);   /* Bright glow */
 
   --font-display: 'Bebas Neue', system-ui, sans-serif;
   --font-mono:    'DM Mono', monospace;
@@ -125,6 +140,58 @@ img, svg {
   to   { stroke-dashoffset: var(--target-offset); }
 }
 
+  /* ===== NEW ANIMATIONS ===== */
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 10px var(--apex-glow), inset 0 0 10px var(--apex-glow); }
+    50%      { box-shadow: 0 0 20px var(--apex-glow-bright), inset 0 0 20px var(--apex-glow-bright); }
+  }
+
+  @keyframes glowBorder {
+    0%, 100% { box-shadow: inset 0 0 0 1px var(--apex-burn); }
+    50%      { box-shadow: inset 0 0 0 2px var(--apex-burn), 0 0 15px var(--apex-burn); }
+  }
+
+  @keyframes slideInRight {
+    from { opacity: 0; transform: translateX(30px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-30px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes slideInDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50%      { transform: translateY(-8px); }
+  }
+
+  @keyframes rotate {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  @keyframes burn {
+    0%   { opacity: 0; }
+    50%  { box-shadow: 0 0 20px var(--apex-burn), inset 0 0 15px rgba(213, 62, 15, 0.3); }
+    100% { opacity: 1; }
+  }
+
+  @keyframes pulse-burn {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.6; }
+  }
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -144,3 +211,123 @@ img, svg {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ===== RAINBOWKIT OVERRIDES ===== */
+:root {
+  --rk-colors-connectButtonBackground: transparent;
+  --rk-colors-connectButtonInnerBackground: var(--void);
+  --rk-colors-connectButtonText: var(--amber);
+  --rk-colors-connectButtonBorder: var(--amber);
+  --rk-colors-connectButtonHoverBackground: var(--amber);
+  --rk-colors-connectButtonHoverText: var(--void);
+  --rk-colors-modalBackground: var(--deep);
+  --rk-colors-modalBorder: var(--dim);
+  --rk-colors-bodyText: var(--white);
+  --rk-colors-bodyTextSecondary: var(--muted);
+  --rk-colors-profileAction: var(--amber);
+  --rk-colors-profileActionHover: var(--raised);
+  --rk-colors-profileForeground: var(--deep);
+  --rk-colors-selectedOptionBorder: var(--amber);
+  --rk-colors-walletLogo: var(--amber);
+  --rk-colors-actionButtonBorder: var(--dim);
+  --rk-colors-glassBackground: var(--deep);
+}
+
+/* Force zero radius on all RainbowKit elements */
+[class*="rk"],
+.rk-modal,
+[class*="rk-walletOption"],
+[class*="rk-connectButton"],
+[class*="rk-modal"],
+[class*="rk-profileButton"],
+[class*="rk-chainButton"],
+[class*="rk-menuButton"] {
+  border-radius: 0 !important;
+}
+
+/* RainbowKit modal overlay */
+.rk-modal {
+  background: rgba(0, 0, 0, 0.85) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* Connect button */
+button[class*="rk-connectButton"] {
+  border: 1px solid var(--amber) !important;
+  background: transparent !important;
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 2px !important;
+  text-transform: uppercase !important;
+  padding: 8px 16px !important;
+  color: var(--amber) !important;
+  transition: all var(--fast) var(--ease-out) !important;
+}
+
+button[class*="rk-connectButton"]:hover {
+  background: var(--amber) !important;
+  color: var(--void) !important;
+}
+
+/* Wallet options */
+[class*="rk-walletOption"] {
+  background: var(--deep) !important;
+  border: 1px solid var(--dim) !important;
+  color: var(--white) !important;
+  transition: all var(--fast) var(--ease-out) !important;
+}
+
+[class*="rk-walletOption"]:hover {
+  background: var(--raised) !important;
+  border-color: var(--amber) !important;
+}
+
+/* Modal content */
+[class*="rk-modal"] {
+  background: var(--deep) !important;
+  border: 1px solid var(--dim) !important;
+}
+
+/* Profile dropdown */
+[class*="rk-profileButton"] {
+  background: var(--deep) !important;
+  border: 1px solid var(--dim) !important;
+}
+
+[class*="rk-profileButton"]:hover {
+  border-color: var(--amber) !important;
+}
+
+/* Chain selector */
+[class*="rk-chainButton"] {
+  background: var(--raised) !important;
+  border: 1px solid var(--dim) !important;
+  color: var(--muted) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+}
+
+/* Menu items */
+[class*="rk-menuItem"] {
+  color: var(--white) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+}
+
+[class*="rk-menuItem"]:hover {
+  background: var(--raised) !important;
+}
+
+/* Override all internal rounded corners */
+div[class*="rk"] {
+  border-radius: 0 !important;
+}
+
+button[class*="rk"] {
+  border-radius: 0 !important;
+}
+
+a[class*="rk"] {
+  border-radius: 0 !important;
+}
+

@@ -3,7 +3,14 @@ import RevealText from "@/components/ui/RevealText";
 
 export default function CTASection() {
   return (
-    <section style={{ padding: "var(--space-40) 40px", textAlign: "center", borderTop: "1px solid var(--dim)" }}>
+    <section
+      style={{
+        padding: "var(--space-40) 40px",
+        textAlign: "center",
+        borderTop: "1px solid rgba(213, 62, 15, 0.25)",
+        background: "linear-gradient(180deg, rgba(10, 10, 10, 0.45), rgba(94, 0, 6, 0.2))",
+      }}
+    >
       <RevealText>
         <h2
           style={{
@@ -14,7 +21,7 @@ export default function CTASection() {
             marginBottom: 16,
           }}
         >
-          READY TO <span style={{ color: "var(--amber)" }}>OPTIMIZE</span>
+          READY TO <span style={{ color: "var(--apex-burn)" }}>OPTIMIZE</span>
         </h2>
       </RevealText>
 
@@ -31,18 +38,20 @@ export default function CTASection() {
           style={{
             display: "inline-block",
             padding: "20px 60px",
-            background: "var(--amber)",
-            color: "var(--void)",
+            background: "linear-gradient(135deg, #D53E0F, #9B0F06)",
+            color: "var(--apex-cream)",
             fontFamily: "var(--font-mono)",
             fontSize: 12,
             letterSpacing: 3,
             textTransform: "uppercase",
             fontWeight: 700,
             transition: "all var(--fast) var(--ease-out)",
+            border: "1px solid rgba(238, 217, 185, 0.35)",
+            borderRadius: 8,
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = "translateY(-2px)";
-            e.currentTarget.style.boxShadow = "0 8px 32px #e8ff0033";
+            e.currentTarget.style.boxShadow = "0 10px 34px rgba(213, 62, 15, 0.45)";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = "";

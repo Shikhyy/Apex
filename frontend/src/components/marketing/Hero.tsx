@@ -37,7 +37,10 @@ export default function Hero({ show }: HeroProps) {
               fontSize: "clamp(48px, 13vw, 200px)",
               lineHeight: 0.9,
               letterSpacing: 4,
-              color: "var(--white)",
+              background: "linear-gradient(90deg, #EED9B9, #D53E0F, #5E0006)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
             }}
           >
             {line}
@@ -52,7 +55,7 @@ export default function Hero({ show }: HeroProps) {
         style={{
           fontFamily: "var(--font-sans)",
           fontSize: 16,
-          color: "var(--muted)",
+          color: "#EED9B9",
           marginTop: 32,
           maxWidth: 480,
           lineHeight: 1.6,
@@ -74,21 +77,26 @@ export default function Hero({ show }: HeroProps) {
           style={{
             display: "inline-block",
             padding: "16px 40px",
-            border: "1px solid var(--amber)",
+            border: "2px solid #D53E0F",
             fontFamily: "var(--font-mono)",
             fontSize: 11,
             letterSpacing: 3,
             textTransform: "uppercase",
-            color: "var(--amber)",
+            color: "#EED9B9",
+            background: "linear-gradient(135deg, rgba(213, 62, 15, 0.15), rgba(94, 0, 6, 0.08))",
             transition: "all var(--fast) var(--ease-out)",
+            borderRadius: "8px",
+            fontWeight: 600,
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--amber)";
-            e.currentTarget.style.color = "var(--void)";
+            e.currentTarget.style.background = "linear-gradient(135deg, #D53E0F, #9B0F06)";
+            e.currentTarget.style.boxShadow = "0 12px 40px rgba(213, 62, 15, 0.4)";
+            e.currentTarget.style.transform = "translateY(-3px)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "var(--amber)";
+            e.currentTarget.style.background = "linear-gradient(135deg, rgba(213, 62, 15, 0.15), rgba(94, 0, 6, 0.08))";
+            e.currentTarget.style.boxShadow = "none";
+            e.currentTarget.style.transform = "translateY(0)";
           }}
         >
           Launch Dashboard
