@@ -45,7 +45,12 @@ class Database:
             )
 
     def insert_cycle_event(
-        self, node: str, timestamp: str, data: dict, cycle_number: int = 0
+        self,
+        node: str,
+        timestamp: str,
+        data: dict,
+        cycle_number: int = 0,
+        user_wallet: Optional[str] = None,
     ):
         """Insert a single node event from a cycle."""
         payload = {
@@ -66,12 +71,14 @@ class Database:
             "intents": data.get("ranked_intents", []),
             "veto_reason": data.get("veto_reason"),
         }
+
+        memory_payload = {**payload, "user_wallet": user_wallet}
         if self._use_supabase:
             try:
                 self.client.table("cycles").insert(payload).execute()
             except Exception as e:
                 logger.error("Failed to insert cycle event into Supabase: %s", e)
-        self._memory_cycles.append(payload)
+        self._memory_cycles.append(memory_payload)
 
     def get_cycle_log(self, limit: int = 100) -> list[dict]:
         """Get recent cycle events, newest first."""

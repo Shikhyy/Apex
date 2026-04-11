@@ -63,7 +63,7 @@ function connectSSE(url: string) {
   });
 }
 
-export function useSSE(url: string) {
+export function useSSE(url: string | null) {
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [connected, setConnected] = useState(false);
 
@@ -86,13 +86,27 @@ export function useSSE(url: string) {
     }
     singleton.listeners.add(notify);
 
-    // Immediately sync current state (don't clear existing events)
-    setEvents([...singleton.events]);
-    setConnected(singleton.connected);
+    if (!url) {
+      singleton.es?.close();
+      singleton.es = null;
+      singleton.url = null;
+      singleton.connected = false;
+      singleton.events = [];
+      setEvents([]);
+      setConnected(false);
+    } else {
+      // Immediately sync current state.
+      setEvents([...singleton.events]);
+      setConnected(singleton.connected);
 
-    // Only start connection if not already running
-    if (!singleton.es) {
-      connectSSE(url);
+      // Reconnect when URL changes (for wallet-specific streams).
+      if (!singleton.es || singleton.url !== url) {
+        singleton.es?.close();
+        singleton.es = null;
+        singleton.connected = false;
+        singleton.events = [];
+        connectSSE(url);
+      }
     }
 
     return () => {

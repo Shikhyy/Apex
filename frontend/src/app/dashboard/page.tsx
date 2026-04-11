@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Topbar from "@/components/dashboard/Topbar";
 import FlowPipeline from "@/components/dashboard/FlowPipeline";
 import DecisionBanner from "@/components/dashboard/DecisionBanner";
@@ -13,6 +13,9 @@ import { useCycle } from "@/hooks/useCycle";
 import { useReputation } from "@/hooks/useReputation";
 import { fetchHealth, fetchLog } from "@/lib/api";
 import type { VetoEntry, AgentName } from "@/lib/types";
+import { useAccount, useWriteContract } from "wagmi";
+import { ADDRESSES, RISK_ROUTER_ABI } from "@/lib/contracts";
+import { parseUnits } from "viem";
 
 const agents: { name: AgentName; role: string; color: string; agentId: number }[] = [
   { name: "scout", role: "Market Intelligence", color: "var(--apex-cream)", agentId: 1 },
@@ -34,6 +37,11 @@ type AgentSignal = {
   detail: string;
   statusLabel: string;
   eventCount: number;
+};
+
+type ActionStatus = {
+  kind: "idle" | "info" | "success" | "error";
+  message: string;
 };
 
 function formatUsd(value: number): string {
@@ -102,12 +110,21 @@ function summarizeAgentSignal(
 }
 
 export default function DashboardPage() {
-  const { events, connected } = useSSE("/api/stream");
-  const { state, updateFromSSE } = useCycle();
+  const { address, isConnected } = useAccount();
+  const { writeContractAsync, isPending: isSubmittingTrade } = useWriteContract();
+  const walletAddress = address?.toLowerCase();
+  const streamUrl = isConnected && walletAddress
+    ? `/api/stream?user_wallet=${encodeURIComponent(walletAddress)}`
+    : null;
+  const { events, connected } = useSSE(streamUrl);
+  const { state, updateFromSSE, resetState } = useCycle();
   const [vetoLog, setVetoLog] = useState<VetoEntry[]>([]);
   const [automationEnabled, setAutomationEnabled] = useState(true);
   const [automationRunning, setAutomationRunning] = useState(false);
+  const [actionStatus, setActionStatus] = useState<ActionStatus>({ kind: "idle", message: "" });
+  const [lastHandledIntentHash, setLastHandledIntentHash] = useState<string>("");
   const reputations = useAllReputations();
+  const riskRouterConfigured = Boolean(ADDRESSES.riskRouter);
 
   const dataLoaded = reputations.every((r) => !r.loading);
   const liveSignals = useMemo(
@@ -166,7 +183,12 @@ export default function DashboardPage() {
   }, [events, updateFromSSE]);
 
   useEffect(() => {
-    fetchLog()
+    if (!walletAddress) {
+      setVetoLog([]);
+      return;
+    }
+
+    fetchLog(walletAddress)
       .then((data) => {
         const vetoes: VetoEntry[] = data.cycles
           .filter((c) => c.node === "guardian" && String((c.data as Record<string, unknown>).guardian_decision).toUpperCase() === "VETOED")
@@ -180,7 +202,11 @@ export default function DashboardPage() {
         setVetoLog(vetoes);
       })
       .catch(() => {});
-  }, []);
+  }, [walletAddress]);
+
+  useEffect(() => {
+    resetState();
+  }, [walletAddress, resetState]);
 
   useEffect(() => {
     fetchHealth()
@@ -208,11 +234,140 @@ export default function DashboardPage() {
     [state.sessionPnl, state.vetoCount, state.approvalCount, state.cycleNumber]
   );
 
+  const latestStrategistEvent = useMemo(
+    () => [...events].reverse().find((event) => event.type === "strategist"),
+    [events]
+  );
+
+  const latestGuardianEvent = useMemo(
+    () => [...events].reverse().find((event) => event.type === "guardian"),
+    [events]
+  );
+
+  const latestApprovedIntent = useMemo(() => {
+    const intents = latestStrategistEvent?.data?.ranked_intents;
+    if (!Array.isArray(intents) || intents.length === 0) {
+      return null;
+    }
+
+    const approved =
+      String(latestGuardianEvent?.data?.guardian_decision || "").toUpperCase() ===
+      "APPROVED";
+    if (!approved) {
+      return null;
+    }
+
+    const topIntent = intents[0] as Record<string, unknown>;
+    const opportunity = (topIntent.opportunity || {}) as Record<string, unknown>;
+    const amountUsd = Number(topIntent.amount_usd || 0);
+    const signature = String(topIntent.eip712_signature || "");
+    const intentHash = String(topIntent.intent_hash || "");
+
+    if (!opportunity.protocol || !opportunity.pool || amountUsd <= 0 || !signature || !intentHash) {
+      return null;
+    }
+
+    return {
+      protocol: String(opportunity.protocol),
+      pool: String(opportunity.pool),
+      amountUsd,
+      intentHash,
+      signature: signature.startsWith("0x") ? signature : `0x${signature}`,
+    };
+  }, [latestStrategistEvent, latestGuardianEvent]);
+
+  const executeFromConnectedWallet = useCallback(async () => {
+    if (!walletAddress) {
+      setActionStatus({ kind: "error", message: "Connect wallet to execute trades." });
+      return;
+    }
+    if (!riskRouterConfigured) {
+      setActionStatus({
+        kind: "error",
+        message:
+          "RiskRouter is not configured. Set NEXT_PUBLIC_RISK_ROUTER_ADDRESS.",
+      });
+      return;
+    }
+    if (!latestApprovedIntent) {
+      setActionStatus({
+        kind: "error",
+        message:
+          "No approved intent available yet. Wait for Guardian APPROVED.",
+      });
+      return;
+    }
+
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const nonce = BigInt(Date.now());
+
+    try {
+      setActionStatus({
+        kind: "info",
+        message: "Autonomous execution submitting approved intent from connected wallet...",
+      });
+
+      const txHash = await writeContractAsync({
+        address: ADDRESSES.riskRouter,
+        abi: RISK_ROUTER_ABI,
+        functionName: "submitTradeIntent",
+        args: [
+          BigInt(4),
+          latestApprovedIntent.protocol,
+          latestApprovedIntent.pool,
+          parseUnits(latestApprovedIntent.amountUsd.toFixed(2), 18),
+          deadline,
+          nonce,
+          BigInt(1),
+          latestApprovedIntent.signature as `0x${string}`,
+        ],
+      });
+
+      setActionStatus({
+        kind: "success",
+        message: `Autonomous wallet execution submitted: ${txHash.slice(0, 12)}...`,
+      });
+    } catch (error) {
+      setActionStatus({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Wallet-signed trade failed.",
+      });
+    }
+  }, [walletAddress, riskRouterConfigured, latestApprovedIntent, writeContractAsync]);
+
+  useEffect(() => {
+    if (!walletAddress) return;
+    if (!connected || state.status === "running") return;
+    setActionStatus({
+      kind: "info",
+      message: "Autonomous backend loop is running wallet-scoped agent cycles.",
+    });
+  }, [walletAddress, connected, state.status]);
+
+  useEffect(() => {
+    if (!walletAddress) return;
+    if (!latestApprovedIntent || isSubmittingTrade || !riskRouterConfigured) return;
+    if (latestApprovedIntent.intentHash === lastHandledIntentHash) return;
+
+    setLastHandledIntentHash(latestApprovedIntent.intentHash);
+    executeFromConnectedWallet();
+  }, [
+    walletAddress,
+    latestApprovedIntent,
+    isSubmittingTrade,
+    riskRouterConfigured,
+    lastHandledIntentHash,
+    executeFromConnectedWallet,
+  ]);
+
   return (
     <>
       <Topbar
         title="Cycle Monitor"
-        connected={connected}
+        connected={isConnected && connected}
         automationEnabled={automationEnabled}
         automationRunning={automationRunning}
       />
@@ -262,6 +417,49 @@ export default function DashboardPage() {
                 Connected wallet execution, reputation-gated approvals, and on-chain vetoes are streamed here as a single control surface.
                 The layout reacts to the current cycle instead of sitting as a static dashboard.
               </p>
+              {walletAddress ? (
+                <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      border: "1px solid rgba(232, 255, 0, 0.45)",
+                      background: "rgba(232, 255, 0, 0.14)",
+                      color: "var(--apex-cream)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      letterSpacing: 1.2,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Autonomous Wallet Agent Pipeline Active
+                  </div>
+                </div>
+              ) : null}
+              {walletAddress && actionStatus.kind !== "idle" ? (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "10px 12px",
+                    border: "1px solid var(--dim)",
+                    background:
+                      actionStatus.kind === "success"
+                        ? "rgba(52, 211, 153, 0.14)"
+                        : actionStatus.kind === "error"
+                        ? "rgba(248, 113, 113, 0.14)"
+                        : "rgba(213, 62, 15, 0.14)",
+                    color:
+                      actionStatus.kind === "success"
+                        ? "var(--green)"
+                        : actionStatus.kind === "error"
+                        ? "var(--red)"
+                        : "var(--apex-burn)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                  }}
+                >
+                  {actionStatus.message}
+                </div>
+              ) : null}
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
@@ -279,11 +477,30 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {state.decision ? <DecisionBanner decision={state.decision} /> : null}
+        {!walletAddress ? (
+          <section
+            style={{
+              marginTop: 24,
+              marginBottom: 24,
+              padding: 24,
+              border: "1px solid rgba(232, 255, 0, 0.35)",
+              background: "rgba(232, 255, 0, 0.06)",
+            }}
+          >
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--apex-burn)", textTransform: "uppercase", marginBottom: 10 }}>
+              Wallet Required
+            </div>
+            <p style={{ fontFamily: "var(--font-sans)", color: "var(--white)", margin: 0, lineHeight: 1.7 }}>
+              Connect your wallet to load your personal cycle history, trade events, and PnL. Dashboard data is scoped per connected wallet.
+            </p>
+          </section>
+        ) : null}
 
-        <FlowPipeline activeNode={state.activeNode} decision={state.decision} cycleStatus={state.status} />
+        {walletAddress && state.decision ? <DecisionBanner decision={state.decision} /> : null}
 
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16, marginTop: 24 }}>
+        {walletAddress ? <FlowPipeline activeNode={state.activeNode} decision={state.decision} cycleStatus={state.status} /> : null}
+
+        {walletAddress ? <section style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16, marginTop: 24 }}>
           {!dataLoaded
             ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
             : liveSignals.map((agent, index) => (
@@ -309,9 +526,9 @@ export default function DashboardPage() {
                   eventCount={agent.signal.eventCount}
                 />
               ))}
-        </section>
+        </section> : null}
 
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginTop: 24 }}>
+        {walletAddress ? <section style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginTop: 24 }}>
           {!dataLoaded
             ? Array.from({ length: 4 }).map((_, i) => <SkeletonStat key={i} />)
             : sessionMetrics.map((m) => (
@@ -322,9 +539,9 @@ export default function DashboardPage() {
                   <div style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
                 </div>
               ))}
-        </section>
+        </section> : null}
 
-        <section style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 24, marginTop: 24 }}>
+        {walletAddress ? <section style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 24, marginTop: 24 }}>
           <LiveTerminal events={events} />
 
           <div>
@@ -351,7 +568,7 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-        </section>
+        </section> : null}
       </main>
 
       <style>{`

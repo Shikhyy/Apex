@@ -69,6 +69,7 @@ class APEXState(TypedDict):
     veto_count: int
     approval_count: int
     cycle_number: int
+    user_wallet: str
 
 
 def _load_agent_ids() -> dict[str, int]:
@@ -113,6 +114,7 @@ def _default_state() -> APEXState:
         veto_count=0,
         approval_count=0,
         cycle_number=0,
+        user_wallet="",
     )
 
 

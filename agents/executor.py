@@ -85,7 +85,11 @@ def _map_protocol_to_pair(opportunity: dict) -> str:
     return f"{token}/USD"
 
 
-def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
+def _attempt_real_execution(
+    opportunity: dict,
+    amount_usd: float,
+    user_wallet: str | None = None,
+) -> dict:
     """Implement real Web3 execution via RiskRouter contract on Base Sepolia."""
     route = _resolve_execution_route(opportunity)
     private_key = os.environ.get("APEX_PRIVATE_KEY")
@@ -120,6 +124,7 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
                 "tx_hash": kraken_result.get("order_id", ""),
                 "protocol": "kraken",
                 "execution_mode": "live",
+                "executing_wallet": user_wallet or "",
             }
         except Exception as exc:
             logger.error("[EXECUTOR] Kraken execution failed: %s", exc)
@@ -130,6 +135,7 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
                 "protocol": "kraken",
                 "execution_mode": "failed",
                 "error": str(exc),
+                "executing_wallet": user_wallet or "",
             }
 
     if route == "surge":
@@ -148,6 +154,7 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
                 "tx_hash": surge_result.get("tx_hash", ""),
                 "protocol": "surge",
                 "execution_mode": "live",
+                "executing_wallet": user_wallet or "",
             }
         except Exception as exc:
             logger.error("[EXECUTOR] Surge execution failed: %s", exc)
@@ -158,6 +165,7 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
                 "protocol": "surge",
                 "execution_mode": "failed",
                 "error": str(exc),
+                "executing_wallet": user_wallet or "",
             }
 
     logger.info("[EXECUTOR] Proceeding with Web3 execution on Base Sepolia...")
@@ -177,6 +185,12 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
             return _simulate_execution(opportunity, amount_usd)
 
         account = Account.from_key(private_key)
+
+        if user_wallet and account.address.lower() != user_wallet.lower():
+            raise RuntimeError(
+                "Connected wallet does not match backend signer. "
+                "Real execution blocked for safety."
+            )
 
         if amount_usd <= 0:
             raise ValueError("Trade amount must be greater than 0 USD")
@@ -277,6 +291,7 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
             "tx_hash": tx_hash.hex(),
             "protocol": "base-sepolia",
             "execution_mode": "live",
+            "executing_wallet": account.address,
         }
 
     except Exception as e:
@@ -284,6 +299,7 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
         fallback = _simulate_execution(opportunity, amount_usd)
         fallback["execution_mode"] = "simulation"
         fallback["fallback_error"] = str(e)
+        fallback["executing_wallet"] = user_wallet or ""
         return fallback
 
 
@@ -297,6 +313,7 @@ def executor_node(state: APEXState) -> dict:
             "executed_protocol": "",
             "actual_pnl": 0.0,
             "execution_error": "No ranked intents available.",
+            "executing_wallet": "",
         }
 
     top_intent = ranked_intents[0]
@@ -313,9 +330,10 @@ def executor_node(state: APEXState) -> dict:
 
     intent_data = f"{protocol}:{pool}:{amount_usd}:{apy}:{state.get('cycle_number', 0)}"
     fallback_tx_hash = _generate_tx_hash(intent_data)
+    user_wallet = str(state.get("user_wallet") or "").strip().lower() or None
 
     try:
-        result = _attempt_real_execution(opportunity, amount_usd)
+        result = _attempt_real_execution(opportunity, amount_usd, user_wallet=user_wallet)
         logger.info(
             "[EXECUTOR] Execution completed in %ss", f"{result['execution_time']:.2f}"
         )
@@ -338,8 +356,9 @@ def executor_node(state: APEXState) -> dict:
             "tx_hash": result_tx_hash,
             "executed_protocol": protocol,
             "actual_pnl": result["actual_pnl"],
-            "execution_error": "",
+            "execution_error": result.get("error", ""),
             "execution_mode": execution_mode,
+            "executing_wallet": result.get("executing_wallet", user_wallet or ""),
         }
     except Exception as e:
         logger.error("[EXECUTOR] Execution failed: %s", str(e))
@@ -349,6 +368,7 @@ def executor_node(state: APEXState) -> dict:
             "actual_pnl": 0.0,
             "execution_error": str(e),
             "execution_mode": "failed",
+            "executing_wallet": user_wallet or "",
         }
 
 

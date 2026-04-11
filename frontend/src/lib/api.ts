@@ -41,10 +41,14 @@ export async function fetchReputation(agentId: number) {
   }>(`/reputation/${agentId}`);
 }
 
-export async function fetchLog() {
+export async function fetchLog(userWallet?: string) {
+  const params = new URLSearchParams();
+  if (userWallet) params.set("user_wallet", userWallet.toLowerCase());
+  const path = params.toString() ? `/log?${params.toString()}` : "/log";
+
   const raw = await request<{
     cycles: Array<Record<string, unknown>>;
-  }>("/log");
+  }>(path);
 
   const cycles = (raw.cycles || []).map((row) => {
     const nestedData = row.data;
@@ -82,10 +86,6 @@ export async function fetchLog() {
   });
 
   return { cycles };
-}
-
-export async function triggerCycle() {
-  return request<{ cycle: number }>("/cycle", { method: "POST" });
 }
 
 export async function fetchMarketPrices() {

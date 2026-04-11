@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 from contextlib import suppress
@@ -25,12 +26,19 @@ from db import get_db
 
 app = FastAPI(title="APEX", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+
+def _parse_cors_origins() -> list[str]:
+    configured = os.environ.get("CORS_ALLOW_ORIGINS", "").strip()
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-    ],
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_parse_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,7 +58,10 @@ AUTO_TRADER_ENABLED = os.environ.get("APEX_AUTOTRADE_ENABLED", "true").strip().l
 AUTO_TRADER_INTERVAL_SECONDS = float(
     os.environ.get("APEX_AUTOTRADE_INTERVAL_SECONDS", "30")
 )
-cycle_subscribers: set[asyncio.Queue[dict]] = set()
+AUTONOMOUS_STRICT_MODE = os.environ.get(
+    "APEX_AUTONOMOUS_STRICT_MODE", "true"
+).strip().lower() not in {"0", "false", "no", "off"}
+cycle_subscribers: set[tuple[asyncio.Queue[dict], Optional[str]]] = set()
 _autotrader_task: asyncio.Task | None = None
 
 IDENTITY_REGISTRY = os.environ.get(
@@ -70,31 +81,75 @@ class ErrorResponse(BaseModel):
     status: int
 
 
+class TriggerCycleRequest(BaseModel):
+    user_wallet: Optional[str] = None
+
+
+def _normalize_wallet_address(wallet: Optional[str]) -> Optional[str]:
+    if wallet is None:
+        return None
+    normalized = wallet.strip().lower()
+    if not normalized:
+        return None
+    if not re.fullmatch(r"0x[a-f0-9]{40}", normalized):
+        raise HTTPException(status_code=400, detail="Invalid user_wallet address format")
+    return normalized
+
+
 def _format_cycle_event(payload: dict) -> str:
     return f"event: {payload['node']}\ndata: {json.dumps(payload)}\n\n"
 
 
-def _persist_cycle_event(node_name: str, timestamp: str, data: dict, cycle_number: int) -> None:
+def _persist_cycle_event(
+    node_name: str,
+    timestamp: str,
+    data: dict,
+    cycle_number: int,
+    user_wallet: Optional[str] = None,
+) -> None:
     try:
-        get_db().insert_cycle_event(node_name, timestamp, data, cycle_number)
+        get_db().insert_cycle_event(
+            node_name,
+            timestamp,
+            data,
+            cycle_number,
+            user_wallet=user_wallet,
+        )
     except Exception as exc:
         print(f"[APEX] Failed to persist {node_name} event: {exc}")
 
 
 def _broadcast_cycle_event(payload: dict) -> None:
-    for queue in list(cycle_subscribers):
+    payload_wallet = _normalize_wallet_address(payload.get("user_wallet"))
+    for queue, subscriber_wallet in list(cycle_subscribers):
+        if subscriber_wallet is not None and subscriber_wallet != payload_wallet:
+            continue
         try:
             queue.put_nowait(payload)
         except Exception:
-            cycle_subscribers.discard(queue)
+            cycle_subscribers.discard((queue, subscriber_wallet))
 
 
-async def _execute_cycle() -> None:
+async def _execute_cycle(user_wallet: Optional[str] = None) -> None:
     """Run a single APEX cycle and publish SSE events to subscribers."""
     global cycle_log, _cycle_running
 
+    normalized_wallet = _normalize_wallet_address(user_wallet)
     state = _default_state()
-    state["cycle_number"] = len([c for c in cycle_log if c.get("node") == "done"]) + 1
+    if normalized_wallet is not None:
+        state["user_wallet"] = normalized_wallet
+
+    state["cycle_number"] = (
+        len(
+            [
+                c
+                for c in cycle_log
+                if c.get("node") == "done"
+                and _normalize_wallet_address(c.get("user_wallet")) == normalized_wallet
+            ]
+        )
+        + 1
+    )
 
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
     _cycle_running = True
@@ -119,20 +174,33 @@ async def _execute_cycle() -> None:
                             "actual_pnl",
                             "execution_error",
                             "execution_mode",
+                            "executed_protocol",
+                            "executing_wallet",
                             "opportunities",
                             "ranked_intents",
                             "volatility_index",
                             "sentiment_score",
                             "scout_reasoning",
                             "strategist_reasoning",
+                            "user_wallet",
                         )
                     },
+                    "user_wallet": normalized_wallet,
                 }
                 cycle_log.append(
-                    {"node": node_name, "timestamp": ts, "data": sse_event["data"]}
+                    {
+                        "node": node_name,
+                        "timestamp": ts,
+                        "data": sse_event["data"],
+                        "user_wallet": normalized_wallet,
+                    }
                 )
                 _persist_cycle_event(
-                    node_name, ts, sse_event["data"], state.get("cycle_number", 0)
+                    node_name,
+                    ts,
+                    sse_event["data"],
+                    state.get("cycle_number", 0),
+                    user_wallet=normalized_wallet,
                 )
                 _broadcast_cycle_event(sse_event)
 
@@ -161,7 +229,9 @@ async def _execute_cycle() -> None:
                 "veto_count": state.get("veto_count", 0),
                 "approval_count": state.get("approval_count", 0),
                 "cycle_number": state.get("cycle_number", 0),
+                "user_wallet": normalized_wallet,
             },
+            "user_wallet": normalized_wallet,
         }
         cycle_log.append(done_event)
         _persist_cycle_event(
@@ -169,6 +239,7 @@ async def _execute_cycle() -> None:
             done_event["timestamp"],
             done_event["data"],
             state.get("cycle_number", 0),
+            user_wallet=normalized_wallet,
         )
         _broadcast_cycle_event(done_event)
 
@@ -179,13 +250,21 @@ async def _execute_cycle() -> None:
         _cycle_running = False
 
 
-async def _stream_cycle_events() -> AsyncGenerator[str, None]:
+async def _stream_cycle_events(user_wallet: Optional[str] = None) -> AsyncGenerator[str, None]:
     """Stream existing and future cycle events as SSE."""
+    normalized_wallet = _normalize_wallet_address(user_wallet)
     queue: asyncio.Queue[dict] = asyncio.Queue()
-    cycle_subscribers.add(queue)
+    subscription = (queue, normalized_wallet)
+    cycle_subscribers.add(subscription)
 
     try:
-        for item in cycle_log[-50:]:
+        matching_history = [
+            item
+            for item in cycle_log
+            if normalized_wallet is None
+            or _normalize_wallet_address(item.get("user_wallet")) == normalized_wallet
+        ]
+        for item in matching_history[-50:]:
             yield _format_cycle_event(
                 {"node": item["node"], "timestamp": item["timestamp"], "data": item["data"]}
             )
@@ -194,13 +273,26 @@ async def _stream_cycle_events() -> AsyncGenerator[str, None]:
             payload = await queue.get()
             yield _format_cycle_event(payload)
     finally:
-        cycle_subscribers.discard(queue)
+        cycle_subscribers.discard(subscription)
 
 
 async def _autotrader_loop() -> None:
     """Continuously launch cycles on an interval while the backend is running."""
     while True:
-        if not _cycle_running:
+        wallet_targets = sorted(
+            {
+                subscriber_wallet
+                for _, subscriber_wallet in cycle_subscribers
+                if subscriber_wallet
+            }
+        )
+
+        if not _cycle_running and wallet_targets:
+            for wallet in wallet_targets:
+                if _cycle_running:
+                    break
+                await _execute_cycle(user_wallet=wallet)
+        elif not _cycle_running and not AUTONOMOUS_STRICT_MODE:
             await _execute_cycle()
 
         try:
@@ -226,6 +318,19 @@ async def _stop_autotrader() -> None:
         _autotrader_task = None
 
 
+@app.get("/")
+async def root():
+    """APEX backend root endpoint."""
+    return {
+        "name": "APEX Backend",
+        "version": "1.0.0",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health",
+        "stream": "/stream",
+    }
+
+
 @app.get("/health")
 async def health():
     groq_set = bool(os.environ.get("GROQ_API_KEY"))
@@ -245,10 +350,11 @@ async def health():
 
 
 @app.get("/stream")
-async def stream():
+async def stream(user_wallet: Optional[str] = None):
     """SSE stream of agent decisions."""
+    normalized_wallet = _normalize_wallet_address(user_wallet)
     return StreamingResponse(
-        _stream_cycle_events(),
+        _stream_cycle_events(normalized_wallet),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -259,9 +365,28 @@ async def stream():
 
 
 @app.post("/cycle")
-async def trigger_cycle():
+async def trigger_cycle(request: Optional[TriggerCycleRequest] = None):
     """Manually trigger a cycle. Events are appended to /log in real time."""
     global _cycle_running, _last_cycle_time
+
+    if AUTONOMOUS_STRICT_MODE:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Manual cycle trigger is disabled in autonomous mode. "
+                "Connect wallet and use autonomous agent pipeline."
+            ),
+        )
+
+    requested_wallet = _normalize_wallet_address(
+        request.user_wallet if request is not None else None
+    )
+    if requested_wallet is None:
+        raise HTTPException(
+            status_code=400,
+            detail="user_wallet is required. Connect wallet and retry.",
+        )
+
     if _cycle_running:
         raise HTTPException(status_code=409, detail="Cycle already running")
 
@@ -274,16 +399,27 @@ async def trigger_cycle():
         )
     _last_cycle_time = now
     _cycle_running = True
-    asyncio.create_task(_execute_cycle())
+    asyncio.create_task(_execute_cycle(user_wallet=requested_wallet))
     return {
         "status": "started",
-        "message": "Cycle started. Poll /log for results.",
+        "message": "Cycle started for wallet. Poll /log for results.",
+        "user_wallet": requested_wallet,
     }
 
 
 @app.get("/log")
-async def get_log():
+async def get_log(user_wallet: Optional[str] = None):
     """Return the persisted cycle log from Supabase."""
+    normalized_wallet = _normalize_wallet_address(user_wallet)
+
+    if normalized_wallet is not None:
+        filtered_cycles = [
+            item
+            for item in cycle_log
+            if _normalize_wallet_address(item.get("user_wallet")) == normalized_wallet
+        ]
+        return {"cycles": filtered_cycles[-100:]}
+
     try:
         db = get_db()
         cycles = db.get_cycle_log(limit=100)

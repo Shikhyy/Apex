@@ -50,6 +50,22 @@ export const IDENTITY_REGISTRY_ABI = [
 
 export const REPUTATION_REGISTRY_ABI = [
   {
+    name: "giveFeedback",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "agentId", type: "uint256" },
+      { name: "value", type: "int128" },
+      { name: "valueDecimals", type: "uint8" },
+      { name: "tag1", type: "string" },
+      { name: "tag2", type: "string" },
+      { name: "endpoint", type: "string" },
+      { name: "feedbackURI", type: "string" },
+      { name: "feedbackHash", type: "bytes32" },
+    ],
+    outputs: [{ name: "feedbackIndex", type: "uint64" }],
+  },
+  {
     name: "getSummary",
     type: "function",
     stateMutability: "view",
@@ -102,6 +118,22 @@ export const REPUTATION_REGISTRY_ABI = [
 ] as const;
 
 export const RISK_ROUTER_ABI = [
+  {
+    name: "submitTradeIntent",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "agentId", type: "uint256" },
+      { name: "protocol", type: "string" },
+      { name: "pool", type: "string" },
+      { name: "amountUsd", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "nonce", type: "uint256" },
+      { name: "leverage", type: "uint256" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
   {
     name: "setVaultBalance",
     type: "function",
@@ -179,11 +211,18 @@ export async function getTokenURI(tokenId: bigint): Promise<string> {
 export async function getReputationSummary(
   agentId: bigint
 ): Promise<{ count: number; value: number; decimals: number; normalized: number }> {
+  const clients = (await publicClient.readContract({
+    address: ADDRESSES.reputationRegistry,
+    abi: REPUTATION_REGISTRY_ABI,
+    functionName: "getClients",
+    args: [agentId],
+  })) as Address[];
+
   const result = (await publicClient.readContract({
     address: ADDRESSES.reputationRegistry,
     abi: REPUTATION_REGISTRY_ABI,
     functionName: "getSummary",
-    args: [agentId, [], "", ""],
+    args: [agentId, clients, "", ""],
   })) as [bigint, bigint, number];
 
   const count = Number(result[0]);

@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef } from "react";
-import { triggerCycle as apiTriggerCycle } from "@/lib/api";
 import type { CycleState } from "@/lib/types";
 
 const initialState: CycleState = {
@@ -17,13 +16,12 @@ export function useCycle() {
   const [state, setState] = useState<CycleState>(initialState);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const triggerCycle = useCallback(async () => {
-    try {
-      setState((s) => ({ ...s, status: "running", activeNode: "scout", decision: null }));
-      await apiTriggerCycle();
-    } catch {
-      setState((s) => ({ ...s, status: "idle", activeNode: null }));
+  const resetState = useCallback(() => {
+    if (dismissTimer.current) {
+      clearTimeout(dismissTimer.current);
+      dismissTimer.current = null;
     }
+    setState(initialState);
   }, []);
 
   const updateFromSSE = useCallback((type: string, data: Record<string, unknown>) => {
@@ -100,5 +98,5 @@ export function useCycle() {
     });
   }, []);
 
-  return { state, triggerCycle, updateFromSSE };
+  return { state, updateFromSSE, resetState };
 }

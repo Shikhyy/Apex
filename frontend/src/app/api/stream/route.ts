@@ -1,12 +1,17 @@
-export async function GET() {
+export async function GET(request: Request) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const incoming = new URL(request.url);
+  const userWallet = incoming.searchParams.get("user_wallet");
+  const upstreamUrl = userWallet
+    ? `${apiUrl}/stream?user_wallet=${encodeURIComponent(userWallet)}`
+    : `${apiUrl}/stream`;
 
   const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
 
   try {
-    const upstream = await fetch(`${apiUrl}/stream`);
+    const upstream = await fetch(upstreamUrl);
     const reader = upstream.body?.getReader();
 
     if (!reader) {
