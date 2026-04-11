@@ -280,7 +280,6 @@ export default function DashboardPage() {
                   borderBottom: activeTab === tab.id ? "2px solid #D53E0F" : "2px solid transparent",
                   background: "none",
                   border: "none",
-                  borderBottom: activeTab === tab.id ? "2px solid #D53E0F" : "2px solid transparent",
                   cursor: "pointer",
                   transition: "color 200ms",
                   display: "flex",

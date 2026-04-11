@@ -1,13 +1,10 @@
-.venv/
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-.git/
-.env
-.env.local
-*.pyc
-.DS_Store
-frontend/node_modules/
-frontend/.next/
-apex.db
+frontend/
 docs/
+video/
+scripts/ (unless needed for startup)
+tests/
+__pycache__/
+.venv/
+.DS_Store
+.git/
+*.db
