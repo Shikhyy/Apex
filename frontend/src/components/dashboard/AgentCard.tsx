@@ -16,6 +16,7 @@ interface AgentCardProps {
   statusLabel?: string;
   detail?: string;
   eventCount?: number;
+  pnl?: number;
 }
 
 const agentLabels: Record<AgentName, string> = {
@@ -37,6 +38,7 @@ export default function AgentCard({
   statusLabel,
   detail,
   eventCount,
+  pnl,
 }: AgentCardProps) {
   const badgeLabel = statusLabel || (isActive ? "LIVE" : "STANDBY");
   const badgeTone = isActive ? color : "var(--muted)";
@@ -136,6 +138,26 @@ export default function AgentCard({
           </div>
           {detail || "Live pipeline node. Waiting for the next authenticated signal from the cycle stream."}
         </div>
+        {typeof pnl === "number" && !Number.isNaN(pnl) && (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 14,
+              padding: "6px 10px",
+              border: `1px solid ${pnl >= 0 ? "var(--green)" : "var(--red)"}33`,
+              background: pnl >= 0 ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: pnl >= 0 ? "var(--green)" : "var(--red)",
+              letterSpacing: 1,
+              textTransform: "uppercase",
+            }}
+          >
+            P&L {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+          </div>
+        )}
         {agentId !== undefined && (
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <Link

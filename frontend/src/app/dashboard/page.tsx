@@ -55,7 +55,7 @@ function summarizeAgentSignal(
     return {
       headline: `${opportunities.length} opportunities mapped`,
       detail: `Volatility ${volatility.toFixed(1)} | Sentiment ${sentiment.toFixed(2)}`,
-      statusLabel: state.activeNode === "scout" ? "SCANNING" : "FEED ONLINE",
+      statusLabel: state.activeNode === "scout" ? "SCANNING" : agentEvents.length > 0 ? "COMPLETE" : "STANDBY",
       eventCount: agentEvents.length,
     };
   }
@@ -65,7 +65,7 @@ function summarizeAgentSignal(
     return {
       headline: `${intents.length} ranked intents`,
       detail: state.activeNode === "strategist" ? "Optimizing capital allocation" : "Awaiting scout output",
-      statusLabel: state.activeNode === "strategist" ? "RANKING" : "READY",
+      statusLabel: state.activeNode === "strategist" ? "RANKING" : agentEvents.length > 0 ? "COMPLETE" : "STANDBY",
       eventCount: agentEvents.length,
     };
   }
@@ -80,7 +80,7 @@ function summarizeAgentSignal(
     return {
       headline: decision === "APPROVED" ? "Trade cleared" : "Circuit breaker armed",
       detail: `${reason} · ${detail}`,
-      statusLabel: decision === "APPROVED" ? "APPROVED" : "VETOED",
+      statusLabel: state.activeNode === "guardian" ? (decision === "APPROVED" ? "APPROVING" : "CHECKING") : decision === "APPROVED" ? "COMPLETE" : "VETOED",
       eventCount: agentEvents.length,
     };
   }
@@ -96,7 +96,7 @@ function summarizeAgentSignal(
       : txHash
       ? `${formatUsd(pnl)} realized PnL | ${txHash.slice(0, 12)}…`
       : "Waiting for an approved intent",
-    statusLabel: executionError ? "ERROR" : state.activeNode === "executor" ? "EXECUTING" : "STAGED",
+    statusLabel: executionError ? "ERROR" : state.activeNode === "executor" ? "EXECUTING" : agentEvents.length > 0 ? "COMPLETE" : "STAGED",
     eventCount: agentEvents.length,
   };
 }
@@ -296,6 +296,7 @@ export default function DashboardPage() {
                   agentId={agent.agentId}
                   isActive={state.activeNode === agent.name}
                   headline={agent.signal.headline}
+                  pnl={agent.name === "executor" ? state.sessionPnl : undefined}
                   lastDecision={
                     state.decision && state.activeNode === agent.name
                       ? state.decision.approved
