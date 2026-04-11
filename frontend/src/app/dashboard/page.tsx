@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Topbar from "@/components/dashboard/Topbar";
 import FlowPipeline from "@/components/dashboard/FlowPipeline";
 import DecisionBanner from "@/components/dashboard/DecisionBanner";
 import AgentCard from "@/components/dashboard/AgentCard";
 import VetoRow from "@/components/dashboard/VetoRow";
 import LiveTerminal from "@/components/dashboard/LiveTerminal";
-import AgentConversationPanel from "@/components/dashboard/AgentConversationPanel";
 import { SkeletonCard, SkeletonStat } from "@/components/ui/Skeleton";
 import { useSSE } from "@/hooks/useSSE";
 import { useCycle } from "@/hooks/useCycle";
@@ -16,44 +15,143 @@ import { fetchHealth, fetchLog } from "@/lib/api";
 import type { VetoEntry, AgentName } from "@/lib/types";
 
 const agents: { name: AgentName; role: string; color: string; agentId: number }[] = [
-  { name: "scout",      role: "Market Intelligence",  color: "#60a5fa", agentId: 1 },
-  { name: "strategist", role: "Portfolio Optimization", color: "#c084fc", agentId: 2 },
-  { name: "guardian",   role: "Risk Enforcement",     color: "#fbbf24", agentId: 3 },
-  { name: "executor",   role: "Trade Execution",      color: "#34d399", agentId: 4 },
+  { name: "scout", role: "Market Intelligence", color: "var(--apex-cream)", agentId: 1 },
+  { name: "strategist", role: "Portfolio Optimization", color: "var(--apex-burn)", agentId: 2 },
+  { name: "guardian", role: "Risk Enforcement", color: "var(--apex-dark-red)", agentId: 3 },
+  { name: "executor", role: "Trade Execution", color: "var(--apex-burn)", agentId: 4 },
 ];
 
 function useAllReputations() {
-  const scout      = useReputation(BigInt(1));
+  const scout = useReputation(BigInt(1));
   const strategist = useReputation(BigInt(2));
-  const guardian   = useReputation(BigInt(3));
-  const executor   = useReputation(BigInt(4));
+  const guardian = useReputation(BigInt(3));
+  const executor = useReputation(BigInt(4));
   return [scout, strategist, guardian, executor];
 }
 
-type TabId = "conversation" | "terminal" | "vetoes";
+type AgentSignal = {
+  headline: string;
+  detail: string;
+  statusLabel: string;
+  eventCount: number;
+};
+
+function formatUsd(value: number): string {
+  return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+function summarizeAgentSignal(
+  agentName: AgentName,
+  events: ReturnType<typeof useSSE>["events"],
+  state: ReturnType<typeof useCycle>["state"]
+): AgentSignal {
+  const agentEvents = events.filter((event) => event.type === agentName);
+  const latest = agentEvents.at(-1);
+
+  if (agentName === "scout") {
+    const opportunities = (latest?.data.opportunities as unknown[] | undefined) || [];
+    const volatility = Number(latest?.data.volatility_index ?? 0);
+    const sentiment = Number(latest?.data.sentiment_score ?? 0);
+    return {
+      headline: `${opportunities.length} opportunities mapped`,
+      detail: `Volatility ${volatility.toFixed(1)} | Sentiment ${sentiment.toFixed(2)}`,
+      statusLabel: state.activeNode === "scout" ? "SCANNING" : "FEED ONLINE",
+      eventCount: agentEvents.length,
+    };
+  }
+
+  if (agentName === "strategist") {
+    const intents = (latest?.data.ranked_intents as unknown[] | undefined) || [];
+    return {
+      headline: `${intents.length} ranked intents`,
+      detail: state.activeNode === "strategist" ? "Optimizing capital allocation" : "Awaiting scout output",
+      statusLabel: state.activeNode === "strategist" ? "RANKING" : "READY",
+      eventCount: agentEvents.length,
+    };
+  }
+
+  if (agentName === "guardian") {
+    const guardianDecision =
+      String(latest?.data.guardian_decision || "").toUpperCase() ||
+      (state.decision?.approved === undefined ? "VETOED" : state.decision.approved ? "APPROVED" : "VETOED");
+    const decision = guardianDecision.toUpperCase();
+    const reason = String(latest?.data.guardian_reason || state.decision?.reason || "awaiting signal");
+    const detail = String(latest?.data.guardian_detail || state.decision?.detail || "Risk checks in progress");
+    return {
+      headline: decision === "APPROVED" ? "Trade cleared" : "Circuit breaker armed",
+      detail: `${reason} · ${detail}`,
+      statusLabel: decision === "APPROVED" ? "APPROVED" : "VETOED",
+      eventCount: agentEvents.length,
+    };
+  }
+
+  const executedProtocol = String(latest?.data.executed_protocol || "");
+  const txHash = String(latest?.data.tx_hash || state.txHash || "");
+  const pnl = Number(latest?.data.actual_pnl ?? state.sessionPnl ?? 0);
+  const executionError = String(latest?.data.execution_error || "");
+  return {
+    headline: executionError ? "Execution blocked" : executedProtocol ? `${executedProtocol} deployed` : "Ready to execute",
+    detail: executionError
+      ? executionError
+      : txHash
+      ? `${formatUsd(pnl)} realized PnL | ${txHash.slice(0, 12)}…`
+      : "Waiting for an approved intent",
+    statusLabel: executionError ? "ERROR" : state.activeNode === "executor" ? "EXECUTING" : "STAGED",
+    eventCount: agentEvents.length,
+  };
+}
 
 export default function DashboardPage() {
   const { events, connected } = useSSE("/api/stream");
-  const { state, triggerCycle: hookTriggerCycle, updateFromSSE } = useCycle();
+  const { state, updateFromSSE } = useCycle();
   const [vetoLog, setVetoLog] = useState<VetoEntry[]>([]);
   const [automationEnabled, setAutomationEnabled] = useState(true);
   const [automationRunning, setAutomationRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabId>("conversation");
-  const [manualTriggerLoading, setManualTriggerLoading] = useState(false);
   const reputations = useAllReputations();
 
   const dataLoaded = reputations.every((r) => !r.loading);
+  const liveSignals = useMemo(
+    () =>
+      agents.map((agent, index) => ({
+        ...agent,
+        signal: summarizeAgentSignal(agent.name, events, state),
+        reputation: reputations[index].summary?.normalized ?? 0,
+      })),
+    [events, reputations, state]
+  );
 
-  // Process incoming SSE events
+  const cycleHealth = useMemo(
+    () => [
+      {
+        label: "Connection",
+        value: connected ? "LIVE" : "OFFLINE",
+        color: connected ? "var(--green)" : "var(--red)",
+      },
+      {
+        label: "Cycle",
+        value: state.status.toUpperCase(),
+        color: state.status === "running" ? "var(--apex-burn)" : "var(--muted)",
+      },
+      {
+        label: "Active Node",
+        value: state.activeNode ? state.activeNode.toUpperCase() : "STANDBY",
+        color: "var(--apex-cream)",
+      },
+      {
+        label: "Stream Events",
+        value: String(events.length),
+        color: "var(--apex-burn)",
+      },
+    ],
+    [connected, events.length, state.activeNode, state.status]
+  );
+
   useEffect(() => {
     if (events.length === 0) return;
     const latest = events[events.length - 1];
     updateFromSSE(latest.type, latest.data);
 
-    if (
-      latest.type === "guardian" &&
-      String(latest.data.guardian_decision).toUpperCase() === "VETOED"
-    ) {
+    if (latest.type === "guardian" && String(latest.data.guardian_decision).toUpperCase() === "VETOED") {
       setVetoLog((prev) => [
         {
           timestamp: latest.timestamp,
@@ -67,18 +165,11 @@ export default function DashboardPage() {
     }
   }, [events, updateFromSSE]);
 
-  // Load historical veto log
   useEffect(() => {
     fetchLog()
       .then((data) => {
         const vetoes: VetoEntry[] = data.cycles
-          .filter(
-            (c) =>
-              c.node === "guardian" &&
-              String(
-                (c.data as Record<string, unknown>).guardian_decision
-              ).toUpperCase() === "VETOED"
-          )
+          .filter((c) => c.node === "guardian" && String((c.data as Record<string, unknown>).guardian_decision).toUpperCase() === "VETOED")
           .map((c) => ({
             timestamp: c.timestamp,
             reason: (c.data.guardian_reason as string) || "unknown",
@@ -91,7 +182,6 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  // Fetch health status
   useEffect(() => {
     fetchHealth()
       .then((health) => {
@@ -108,36 +198,15 @@ export default function DashboardPage() {
       });
   }, []);
 
-  const handleManualCycle = useCallback(async () => {
-    if (state.status === "running" || manualTriggerLoading) return;
-    try {
-      setManualTriggerLoading(true);
-      await hookTriggerCycle();
-    } finally {
-      setManualTriggerLoading(false);
-    }
-  }, [state.status, manualTriggerLoading, hookTriggerCycle]);
-
   const sessionMetrics = useMemo(
     () => [
-      {
-        label: "Session PnL",
-        value: `$${state.sessionPnl.toFixed(2)}`,
-        color: state.sessionPnl >= 0 ? "#34d399" : "#f87171",
-        bg: state.sessionPnl >= 0 ? "#34d39910" : "#f8717110",
-      },
-      { label: "Cycle #", value: String(state.cycleNumber), color: "#c084fc", bg: "#c084fc10" },
-      { label: "Approvals", value: String(state.approvalCount), color: "#34d399", bg: "#34d39910" },
-      { label: "Vetoes", value: String(state.vetoCount), color: "#f87171", bg: "#f8717110" },
+      { label: "Session PnL", value: `$${state.sessionPnl.toFixed(2)}`, color: state.sessionPnl >= 0 ? "var(--green)" : "var(--red)" as const },
+      { label: "Vetoes", value: String(state.vetoCount), color: "var(--red)" as const },
+      { label: "Approvals", value: String(state.approvalCount), color: "var(--green)" as const },
+      { label: "Cycle #", value: String(state.cycleNumber), color: "var(--apex-burn)" as const },
     ],
     [state.sessionPnl, state.vetoCount, state.approvalCount, state.cycleNumber]
   );
-
-  const tabs: { id: TabId; label: string; count?: number }[] = [
-    { id: "conversation", label: "Agent Flow", count: events.length },
-    { id: "terminal", label: "Raw Stream" },
-    { id: "vetoes", label: "Vetoes", count: vetoLog.length },
-  ];
 
   return (
     <>
@@ -148,550 +217,166 @@ export default function DashboardPage() {
         automationRunning={automationRunning}
       />
 
-      {/* Flow Pipeline — always visible */}
-      <FlowPipeline
-        activeNode={state.activeNode}
-        decision={state.decision}
-        cycleStatus={state.status}
-      />
-
-      {/* Decision Banner overlay */}
-      {state.decision && <DecisionBanner decision={state.decision} />}
-
-      {/* Session Metrics */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 1,
-          background: "#111",
-          borderBottom: "1px solid #1e1e1e",
-        }}
-      >
-        {!dataLoaded
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} style={{ padding: 20, background: "#0d0d0d" }}>
-                <SkeletonStat />
-              </div>
-            ))
-          : sessionMetrics.map((m) => (
-              <div
-                key={m.label}
-                style={{
-                  padding: "20px 24px",
-                  background: "#0d0d0d",
-                  borderRight: "1px solid #111",
-                  transition: "background 300ms",
-                }}
-              >
-                <div
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 9,
-                    letterSpacing: 2,
-                    color: "#444",
-                    marginBottom: 8,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {m.label}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 26,
-                    fontWeight: 700,
-                    color: m.color,
-                    lineHeight: 1,
-                  }}
-                >
-                  {m.value}
-                </div>
-              </div>
-            ))}
-      </div>
-
-      {/* Main content area */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 340px",
-          gap: 0,
-          minHeight: "calc(100vh - 340px)",
-        }}
-      >
-        {/* Left: Agent Cards + Tabbed Panel */}
-        <div style={{ borderRight: "1px solid #111", display: "flex", flexDirection: "column" }}>
-          {/* Agent Cards */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
-              gap: 1,
-              background: "#111",
-              borderBottom: "1px solid #1e1e1e",
-            }}
-          >
-            {!dataLoaded
-              ? Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} style={{ background: "#0d0d0d", padding: 20 }}>
-                    <SkeletonCard />
-                  </div>
-                ))
-              : agents.map((agent, i) => (
-                  <AgentCard
-                    key={agent.name}
-                    name={agent.name}
-                    role={agent.role}
-                    color={agent.color}
-                    repScore={reputations[i].summary?.normalized ?? 50}
-                    agentId={agent.agentId}
-                    isActive={state.activeNode === agent.name}
-                    lastDecision={
-                      state.decision && state.activeNode === agent.name
-                        ? state.decision.approved
-                          ? "Approved"
-                          : "Vetoed"
-                        : undefined
-                    }
-                  />
-                ))}
-          </div>
-
-          {/* Tabs */}
-          <div
-            style={{
-              display: "flex",
-              borderBottom: "1px solid #1e1e1e",
-              background: "#0a0a0a",
-            }}
-          >
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  padding: "12px 20px",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 9,
-                  letterSpacing: 2,
-                  textTransform: "uppercase",
-                  color: activeTab === tab.id ? "#D53E0F" : "#444",
-                  borderBottom: activeTab === tab.id ? "2px solid #D53E0F" : "2px solid transparent",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  transition: "color 200ms",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                {tab.label}
-                {tab.count !== undefined && tab.count > 0 && (
-                  <span
-                    style={{
-                      background: activeTab === tab.id ? "#D53E0F22" : "#1a1a1a",
-                      color: activeTab === tab.id ? "#D53E0F" : "#444",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 8,
-                      padding: "1px 5px",
-                    }}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-
-            {/* Cycle trigger / Autonomous mode badge */}
-            {automationEnabled ? (
-              <div
-                style={{
-                  marginLeft: "auto",
-                  padding: "10px 20px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 9,
-                  letterSpacing: 2,
-                  textTransform: "uppercase",
-                  color: "#34d399",
-                  background: "rgba(52,211,153,0.08)",
-                  border: "1px solid #34d39944",
-                  marginTop: 8,
-                  marginBottom: 8,
-                  marginRight: 16,
-                  cursor: "default",
-                }}
-              >
-                <div
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "999px",
-                    background: "#34d399",
-                    animation: state.status === "running" ? "pulse 1.2s infinite" : "none",
-                  }}
-                />
-                Autonomous Mode
-              </div>
-            ) : (
-              <button
-                onClick={handleManualCycle}
-                disabled={state.status === "running" || manualTriggerLoading}
-                style={{
-                  marginLeft: "auto",
-                  padding: "10px 20px",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 9,
-                  letterSpacing: 2,
-                  textTransform: "uppercase",
-                  color:
-                    state.status === "running" || manualTriggerLoading
-                      ? "#333"
-                      : "#D53E0F",
-                  background:
-                    state.status === "running" || manualTriggerLoading
-                      ? "transparent"
-                      : "rgba(213,62,15,0.08)",
-                  border: `1px solid ${
-                    state.status === "running" || manualTriggerLoading
-                      ? "#222"
-                      : "#D53E0F44"
-                  }`,
-                  cursor:
-                    state.status === "running" || manualTriggerLoading
-                      ? "not-allowed"
-                      : "pointer",
-                  transition: "all 200ms",
-                  marginTop: 8,
-                  marginBottom: 8,
-                  marginRight: 16,
-                }}
-              >
-                {state.status === "running" ? "◌ Running..." : "▶ Run Cycle"}
-              </button>
-            )}
-          </div>
-
-          {/* Tab content */}
-          <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-            {activeTab === "conversation" && (
-              <div style={{ height: "100%", overflowY: "auto" }}>
-                <AgentConversationPanel events={events} />
-              </div>
-            )}
-            {activeTab === "terminal" && (
-              <div style={{ height: "100%", minHeight: 400 }}>
-                <LiveTerminal events={events} />
-              </div>
-            )}
-            {activeTab === "vetoes" && (
-              <div style={{ height: "100%", overflowY: "auto" }}>
-                {vetoLog.length === 0 ? (
-                  <div
-                    style={{
-                      padding: "60px 40px",
-                      textAlign: "center",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 12,
-                      letterSpacing: 3,
-                      color: "#2a2a2a",
-                    }}
-                  >
-                    NO VETOES YET
-                    <div
-                      style={{
-                        marginTop: 8,
-                        fontSize: 9,
-                        color: "#222",
-                        letterSpacing: 1,
-                      }}
-                    >
-                      Guardian circuit breaker has not triggered
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    {vetoLog.slice(0, 20).map((v, i) => (
-                      <VetoRow key={i} {...v} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Activity Feed / System Status */}
+      <main style={{ padding: "24px 32px 40px", position: "relative" }}>
         <div
           style={{
-            display: "flex",
-            flexDirection: "column",
-            background: "#0a0a0a",
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+            maskImage: "linear-gradient(to bottom, transparent, black 12%, black 88%, transparent)",
+            opacity: 0.2,
+          }}
+        />
+
+        <section
+          style={{
+            position: "relative",
+            marginBottom: 24,
+            padding: 28,
+            border: "1px solid var(--dim)",
+            background: "linear-gradient(135deg, rgba(17,17,17,0.96), rgba(10,10,10,0.98))",
+            overflow: "hidden",
           }}
         >
-          {/* System status header */}
           <div
             style={{
-              padding: "16px 20px",
-              borderBottom: "1px solid #111",
-              fontFamily: "var(--font-mono)",
-              fontSize: 9,
-              letterSpacing: 2,
-              color: "#333",
-              textTransform: "uppercase",
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(700px 240px at 20% 0%, rgba(213,62,15,0.18), transparent 60%), radial-gradient(500px 180px at 100% 0%, rgba(237,217,185,0.08), transparent 52%)",
+              pointerEvents: "none",
             }}
-          >
-            System Status
-          </div>
-
-          {/* Status items */}
-          <div style={{ padding: "12px 20px", borderBottom: "1px solid #0f0f0f" }}>
-            <StatusRow
-              label="SSE Stream"
-              value={connected ? "Connected" : "Disconnected"}
-              ok={connected}
-            />
-            <StatusRow
-              label="Auto Trader"
-              value={automationRunning ? "Active" : automationEnabled ? "Enabled" : "Disabled"}
-              ok={automationRunning}
-            />
-            <StatusRow
-              label="Network"
-              value="Base Sepolia"
-              ok={true}
-            />
-            <StatusRow
-              label="Cycle Status"
-              value={state.status.charAt(0).toUpperCase() + state.status.slice(1)}
-              ok={state.status !== "idle"}
-            />
-          </div>
-
-          {/* Recent activity summary */}
-          <div
-            style={{
-              padding: "16px 20px",
-              borderBottom: "1px solid #111",
-              fontFamily: "var(--font-mono)",
-              fontSize: 9,
-              letterSpacing: 2,
-              color: "#333",
-              textTransform: "uppercase",
-            }}
-          >
-            Agents ({agents.length} active)
-          </div>
-
-          <div style={{ padding: "8px 0" }}>
-            {agents.map((agent) => {
-              const isActive = state.activeNode === agent.name;
-              return (
-                <div
-                  key={agent.name}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "10px 20px",
-                    borderBottom: "1px solid #0f0f0f",
-                    background: isActive ? `${agent.color}08` : "transparent",
-                    transition: "background 300ms",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: "999px",
-                      background: isActive ? agent.color : "#1e1e1e",
-                      animation: isActive ? "pulse 1.2s infinite" : "none",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div>
-                    <div
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 10,
-                        color: isActive ? agent.color : "#555",
-                        letterSpacing: 1,
-                      }}
-                    >
-                      {agent.name.toUpperCase()}
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 9,
-                        color: "#333",
-                      }}
-                    >
-                      {isActive ? "Processing..." : agent.role}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      marginLeft: "auto",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 8,
-                      color: isActive ? agent.color : "#222",
-                      letterSpacing: 1,
-                    }}
-                  >
-                    ERC-8004 #{agent.agentId}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Recent decisions */}
-          {state.decision && (
-            <div style={{ padding: "16px 20px", marginTop: 8 }}>
-              <div
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 9,
-                  letterSpacing: 2,
-                  color: "#333",
-                  marginBottom: 12,
-                  textTransform: "uppercase",
-                }}
-              >
-                Latest Decision
+          />
+          <div style={{ position: "relative", display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 24, alignItems: "start" }}>
+            <div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 4, color: "var(--apex-burn)", textTransform: "uppercase", marginBottom: 10 }}>
+                Mission Control
               </div>
-              <div
-                style={{
-                  padding: 16,
-                  background: state.decision.approved
-                    ? "#34d39910"
-                    : "#f8717110",
-                  border: `1px solid ${
-                    state.decision.approved ? "#34d39933" : "#f8717133"
-                  }`,
-                }}
-              >
-                <div
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 12,
-                    color: state.decision.approved ? "#34d399" : "#f87171",
-                    fontWeight: 700,
-                    marginBottom: 6,
-                  }}
-                >
-                  {state.decision.approved ? "✓ APPROVED" : "⊘ VETOED"}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    color: "#555",
-                    marginBottom: 4,
-                  }}
-                >
-                  {state.decision.reason.replace(/_/g, " ")}
-                </div>
-                {state.decision.detail && (
-                  <div
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 9,
-                      color: "#444",
-                    }}
-                  >
-                    {state.decision.detail.slice(0, 100)}
-                  </div>
-                )}
-              </div>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: 62, lineHeight: 0.9, letterSpacing: 3, color: "var(--white)", marginBottom: 16 }}>
+                Live capital orchestration.
+              </h2>
+              <p style={{ maxWidth: 760, fontFamily: "var(--font-sans)", fontSize: 15, lineHeight: 1.8, color: "var(--muted)" }}>
+                Connected wallet execution, reputation-gated approvals, and on-chain vetoes are streamed here as a single control surface.
+                The layout reacts to the current cycle instead of sitting as a static dashboard.
+              </p>
             </div>
-          )}
-        </div>
-      </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+              {cycleHealth.map((metric) => (
+                <div key={metric.label} style={{ padding: 16, border: "1px solid var(--dim)", background: "rgba(255,255,255,0.02)" }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, color: "var(--mid)", textTransform: "uppercase", marginBottom: 8 }}>
+                    {metric.label}
+                  </div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, color: metric.color, letterSpacing: 1 }}>
+                    {metric.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {state.decision ? <DecisionBanner decision={state.decision} /> : null}
+
+        <FlowPipeline activeNode={state.activeNode} decision={state.decision} cycleStatus={state.status} />
+
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16, marginTop: 24 }}>
+          {!dataLoaded
+            ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+            : liveSignals.map((agent, index) => (
+                <AgentCard
+                  key={agent.name}
+                  name={agent.name}
+                  role={agent.role}
+                  color={agent.color}
+                  repScore={reputations[index].summary?.normalized ?? 0}
+                  agentId={agent.agentId}
+                  isActive={state.activeNode === agent.name}
+                  headline={agent.signal.headline}
+                  lastDecision={
+                    state.decision && state.activeNode === agent.name
+                      ? state.decision.approved
+                        ? "Approved"
+                        : "Vetoed"
+                      : undefined
+                  }
+                  statusLabel={agent.signal.statusLabel}
+                  detail={agent.signal.detail}
+                  eventCount={agent.signal.eventCount}
+                />
+              ))}
+        </section>
+
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginTop: 24 }}>
+          {!dataLoaded
+            ? Array.from({ length: 4 }).map((_, i) => <SkeletonStat key={i} />)
+            : sessionMetrics.map((m) => (
+                <div key={m.label} style={{ padding: 20, background: "var(--deep)", border: "1px solid var(--dim)" }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--mid)", marginBottom: 8, textTransform: "uppercase" }}>
+                    {m.label}
+                  </div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 700, color: m.color, lineHeight: 1 }}>{m.value}</div>
+                </div>
+              ))}
+        </section>
+
+        <section style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 24, marginTop: 24 }}>
+          <LiveTerminal events={events} />
+
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--mid)", textTransform: "uppercase" }}>
+                Recent Vetoes
+              </div>
+              {vetoLog.length > 5 && (
+                <a href="/dashboard/veto-log" style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--apex-burn)" }}>
+                  View all →
+                </a>
+              )}
+            </div>
+
+            {vetoLog.length === 0 ? (
+              <div style={{ padding: 40, background: "var(--deep)", border: "1px solid var(--dim)", textAlign: "center", fontFamily: "var(--font-display)", fontSize: 20, letterSpacing: 3, color: "var(--text-ghost)" }}>
+                NO VETOES YET
+              </div>
+            ) : (
+              <div style={{ background: "var(--deep)", border: "1px solid var(--dim)" }}>
+                {vetoLog.slice(0, 5).map((v, i) => (
+                  <VetoRow key={i} {...v} />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      </main>
 
       <style>{`
-        @media (max-width: 1200px) {
-          div[style*="grid-template-columns: 1fr 340px"] {
+        @media (max-width: 1080px) {
+          main section[style*="grid-template-columns: repeat(2, minmax(0, 1fr))"] {
             grid-template-columns: 1fr !important;
           }
-        }
-        @media (max-width: 900px) {
-          div[style*="grid-template-columns: repeat(2, 1fr)"] {
+          main section[style*="grid-template-columns: 1.15fr 0.85fr"] {
             grid-template-columns: 1fr !important;
           }
-          div[style*="grid-template-columns: repeat(4, 1fr)"] {
-            grid-template-columns: repeat(2, 1fr) !important;
+          main section[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
         }
-        @media (max-width: 600px) {
-          div[style*="grid-template-columns: repeat(4, 1fr)"] {
+        @media (max-width: 768px) {
+          main {
+            padding: 16px !important;
+          }
+          h2 {
+            font-size: 42px !important;
+          }
+          main section[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"] {
             grid-template-columns: 1fr !important;
           }
-        }
-        button:hover:not(:disabled) {
-          opacity: 0.85;
         }
       `}</style>
     </>
-  );
-}
-
-function StatusRow({
-  label,
-  value,
-  ok,
-}: {
-  label: string;
-  value: string;
-  ok: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "8px 0",
-        borderBottom: "1px solid #0f0f0f",
-      }}
-    >
-      <span
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 9,
-          color: "#444",
-          letterSpacing: 1,
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          fontFamily: "var(--font-mono)",
-          fontSize: 9,
-          color: ok ? "#34d399" : "#f87171",
-        }}
-      >
-        <span
-          style={{
-            width: 4,
-            height: 4,
-            borderRadius: "999px",
-            background: ok ? "#34d399" : "#f87171",
-            display: "inline-block",
-            animation: ok ? "pulse 2s infinite" : "none",
-          }}
-        />
-        {value}
-      </span>
-    </div>
   );
 }

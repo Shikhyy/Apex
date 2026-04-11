@@ -73,6 +73,9 @@ try {
   await capturePage(page, "/", "home.png", "APEX", 1200);
 
   await page.goto(`${frontendUrl}/dashboard`, { waitUntil: "domcontentloaded" });
+  await startCycle();
+  await waitForCycleDone();
+  await page.waitForTimeout(1500);
   await page.screenshot({ path: path.join(outputDir, "dashboard.png"), fullPage: false });
 
   await capturePage(page, "/dashboard/agents", "agents.png", "Agent Registry", 2000);

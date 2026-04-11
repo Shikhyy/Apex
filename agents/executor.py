@@ -32,6 +32,7 @@ def _simulate_execution(opportunity: dict, amount_usd: float) -> dict:
     return {
         "execution_time": exec_time,
         "actual_pnl": round(actual_pnl, 2),
+        "execution_mode": "simulation",
     }
 
 
@@ -50,12 +51,114 @@ def _build_signed_intent(opportunity: dict, amount_usd: float) -> dict:
     }
 
 
+def _normalize_protocol_name(protocol: str) -> str:
+    return protocol.strip().lower().replace(" ", "")
+
+
+def _resolve_execution_route(opportunity: dict) -> str:
+    protocol = _normalize_protocol_name(str(opportunity.get("protocol", "")))
+    pool = str(opportunity.get("pool", "")).upper()
+
+    if protocol in {"aave", "curve", "compound", "aerodrome"}:
+        return "surge"
+
+    if protocol in {"kraken", "cex"} or "/" in pool:
+        return "kraken"
+
+    return os.environ.get("APEX_EXECUTION_MODE", "simulation").strip().lower()
+
+
+def _map_protocol_to_pair(opportunity: dict) -> str:
+    protocol = _normalize_protocol_name(str(opportunity.get("protocol", "")))
+    pool = str(opportunity.get("pool", "")).upper()
+    token = str(opportunity.get("token", "USDC")).upper()
+
+    if "/" in pool:
+        return pool
+
+    if protocol in {"aave", "curve", "compound", "aerodrome"}:
+        base = "ETH" if token in {"WETH", "ETH"} else token.replace("V3", "")
+        if base in {"USDC", "USDT", "DAI"}:
+            return f"{base}/USD"
+        return f"{base}/USD"
+
+    return f"{token}/USD"
+
+
 def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
     """Implement real Web3 execution via RiskRouter contract on Base Sepolia."""
+    route = _resolve_execution_route(opportunity)
     private_key = os.environ.get("APEX_PRIVATE_KEY")
     rpc_url = os.environ.get("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
     router_address = os.environ.get("RISK_ROUTER_ADDRESS")
     agent_id = os.environ.get("APEX_EXECUTOR_AGENT_ID", 1)  # Or any valid ID
+
+    logger.info("[EXECUTOR] Execution route resolved to %s", route)
+
+    if route == "kraken":
+        try:
+            from mcp_tools.execution import execute_kraken_order, calculate_realized_pnl
+
+            pair = _map_protocol_to_pair(opportunity)
+            side = str(opportunity.get("side", "buy")).lower()
+            kraken_result = execute_kraken_order(pair, amount_usd, side=side)
+            if kraken_result.get("status") != "success":
+                raise RuntimeError(kraken_result.get("error") or "Kraken order failed")
+
+            price = float(kraken_result.get("avg_price", 0.0))
+            if price <= 0:
+                raise RuntimeError("Kraken order returned invalid fill price")
+
+            executed_amount = float(kraken_result.get("filled_amount", amount_usd))
+            entry_value = amount_usd
+            exit_value = executed_amount * price
+            pnl = calculate_realized_pnl(entry_value, exit_value)
+
+            return {
+                "execution_time": 1.2,
+                "actual_pnl": round(pnl, 2),
+                "tx_hash": kraken_result.get("order_id", ""),
+                "protocol": "kraken",
+                "execution_mode": "live",
+            }
+        except Exception as exc:
+            logger.error("[EXECUTOR] Kraken execution failed: %s", exc)
+            return {
+                "execution_time": 0.0,
+                "actual_pnl": 0.0,
+                "tx_hash": "",
+                "protocol": "kraken",
+                "execution_mode": "failed",
+                "error": str(exc),
+            }
+
+    if route == "surge":
+        try:
+            from mcp_tools.execution import execute_surge_intent
+
+            signed_intent = _build_signed_intent(opportunity, amount_usd)
+            surge_result = asyncio.run(execute_surge_intent(signed_intent))
+            if surge_result.get("status") != "success":
+                raise RuntimeError(surge_result.get("error") or "Surge execution failed")
+
+            pnl = amount_usd * (opportunity.get("apy", 0) / 100) * random.uniform(0.9, 1.1)
+            return {
+                "execution_time": 1.8,
+                "actual_pnl": round(pnl, 2),
+                "tx_hash": surge_result.get("tx_hash", ""),
+                "protocol": "surge",
+                "execution_mode": "live",
+            }
+        except Exception as exc:
+            logger.error("[EXECUTOR] Surge execution failed: %s", exc)
+            return {
+                "execution_time": 0.0,
+                "actual_pnl": 0.0,
+                "tx_hash": "",
+                "protocol": "surge",
+                "execution_mode": "failed",
+                "error": str(exc),
+            }
 
     logger.info("[EXECUTOR] Proceeding with Web3 execution on Base Sepolia...")
 
@@ -69,7 +172,25 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
         from mcp_tools.signing import generate_eip712_intent
 
         w3 = Web3(Web3.HTTPProvider(rpc_url))
+        if not w3.is_connected():
+            logger.warning("[EXECUTOR] RPC not reachable (%s). Using simulation.", rpc_url)
+            return _simulate_execution(opportunity, amount_usd)
+
         account = Account.from_key(private_key)
+
+        if amount_usd <= 0:
+            raise ValueError("Trade amount must be greater than 0 USD")
+
+        # Ensure the signer wallet can pay gas before building transactions.
+        gas_price = w3.eth.gas_price
+        estimated_gas_budget = 450_000  # submit intent + post-trade bookkeeping
+        min_required_wei = gas_price * estimated_gas_budget
+        wallet_balance_wei = w3.eth.get_balance(account.address)
+        if wallet_balance_wei < min_required_wei:
+            raise RuntimeError(
+                "Insufficient connected wallet funds for gas: "
+                f"have={wallet_balance_wei} wei need~={min_required_wei} wei"
+            )
 
         # 1. Ask Strategist/Signing util to make an EIP-712 intent
         base_intent = {
@@ -122,47 +243,48 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
             "from": account.address,
             "nonce": tx_nonce,
             "gas": 300_000,
-            "gasPrice": w3.eth.gas_price,
+            "gasPrice": gas_price,
         })
 
         signed_tx = account.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        logger.info(f"[EXECUTOR] Broadcasted SubmitTradeIntent tx: {tx_hash.hex()}. Waiting for confirmation...")
-        w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-        logger.info(f"[EXECUTOR] TradeIntent Confirmed!")
+        logger.info(f"[EXECUTOR] Broadcasted SubmitTradeIntent tx: {tx_hash.hex()}")
+        submit_receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+        if submit_receipt.status != 1:
+            raise RuntimeError("submitTradeIntent reverted on-chain")
 
         # 6. Simulate returning of Profit through contract (grows the money!)
         pnl = amount_usd * (opportunity.get("apy", 0) / 100) * random.uniform(0.9, 1.1)
         wei_profit = int(pnl * 1e18)
-        
-        # Explicitly fetch the next pending nonce to avoid race conditions
-        next_nonce = w3.eth.get_transaction_count(account.address, "pending")
-        
         record_tx = router_contract.functions.recordProfit(
             account.address,
             wei_profit
         ).build_transaction({
             "from": account.address,
-            "nonce": next_nonce,
+            "nonce": tx_nonce + 1,
             "gas": 150_000,
-            "gasPrice": w3.eth.gas_price,
+            "gasPrice": gas_price,
         })
         signed_record_tx = account.sign_transaction(record_tx)
-        record_tx_hash = w3.eth.send_raw_transaction(signed_record_tx.raw_transaction)
-        logger.info(f"[EXECUTOR] Broadcasted recordProfit tx. Waiting for confirmation...")
-        w3.eth.wait_for_transaction_receipt(record_tx_hash, timeout=120)
-        logger.info(f"[EXECUTOR] Profit recording Confirmed!")
+        record_hash = w3.eth.send_raw_transaction(signed_record_tx.raw_transaction)
+        record_receipt = w3.eth.wait_for_transaction_receipt(record_hash, timeout=180)
+        if record_receipt.status != 1:
+            raise RuntimeError("recordProfit reverted on-chain")
 
         return {
             "execution_time": 2.5,
             "actual_pnl": round(pnl, 2),
             "tx_hash": tx_hash.hex(),
-            "protocol": "Base Sepolia Native",
+            "protocol": "base-sepolia",
+            "execution_mode": "live",
         }
 
     except Exception as e:
         logger.error(f"[EXECUTOR] Base Sepolia tx failed: {str(e)}")
-        return _simulate_execution(opportunity, amount_usd)
+        fallback = _simulate_execution(opportunity, amount_usd)
+        fallback["execution_mode"] = "simulation"
+        fallback["fallback_error"] = str(e)
+        return fallback
 
 
 def executor_node(state: APEXState) -> dict:
@@ -199,6 +321,8 @@ def executor_node(state: APEXState) -> dict:
         )
         logger.info("[EXECUTOR] Realized PnL: $%s", f"{result['actual_pnl']:,.2f}")
         result_tx_hash = result.get("tx_hash", "")
+        execution_mode = result.get("execution_mode", "simulation")
+        logger.info("[EXECUTOR] Execution mode: %s", execution_mode)
         logger.info("[EXECUTOR] TX Hash: %s", result_tx_hash or "<no on-chain tx>")
 
         # Post execution reputation signal
@@ -215,6 +339,7 @@ def executor_node(state: APEXState) -> dict:
             "executed_protocol": protocol,
             "actual_pnl": result["actual_pnl"],
             "execution_error": "",
+            "execution_mode": execution_mode,
         }
     except Exception as e:
         logger.error("[EXECUTOR] Execution failed: %s", str(e))
@@ -223,6 +348,7 @@ def executor_node(state: APEXState) -> dict:
             "executed_protocol": protocol,
             "actual_pnl": 0.0,
             "execution_error": str(e),
+            "execution_mode": "failed",
         }
 
 
@@ -248,6 +374,7 @@ def veto_node(state: APEXState) -> dict:
         "actual_pnl": 0.0,
         "execution_error": "",
         "veto_count": state.get("veto_count", 0) + 1,
+        "execution_mode": "veto",
     }
 
 

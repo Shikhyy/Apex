@@ -118,14 +118,13 @@ async def _execute_cycle() -> None:
                             "tx_hash",
                             "actual_pnl",
                             "execution_error",
-                            "executed_protocol",
+                            "execution_mode",
                             "opportunities",
                             "ranked_intents",
                             "volatility_index",
                             "sentiment_score",
                             "scout_reasoning",
                             "strategist_reasoning",
-                            "veto_count",
                         )
                     },
                 }
@@ -200,20 +199,14 @@ async def _stream_cycle_events() -> AsyncGenerator[str, None]:
 
 async def _autotrader_loop() -> None:
     """Continuously launch cycles on an interval while the backend is running."""
-    await asyncio.sleep(5)  # brief startup delay
     while True:
+        if not _cycle_running:
+            await _execute_cycle()
+
         try:
-            if not _cycle_running:
-                await _execute_cycle()
-            try:
-                await asyncio.sleep(AUTO_TRADER_INTERVAL_SECONDS)
-            except asyncio.CancelledError:
-                break
+            await asyncio.sleep(AUTO_TRADER_INTERVAL_SECONDS)
         except asyncio.CancelledError:
             break
-        except Exception as exc:
-            print(f"[APEX] Autotrader loop error: {exc}")
-            await asyncio.sleep(10)
 
 
 @app.on_event("startup")

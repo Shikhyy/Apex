@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
 interface HeroProps {
   show: boolean;
@@ -11,19 +10,6 @@ interface HeroProps {
 const lines = ["MULTI-AGENT", "YIELD", "OPTIMIZER"];
 
 export default function Hero({ show }: HeroProps) {
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePos({
-        x: (e.clientX / window.innerWidth - 0.5) * 20,
-        y: (e.clientY / window.innerHeight - 0.5) * 20,
-      });
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []);
-
   return (
     <section
       style={{
@@ -33,46 +19,9 @@ export default function Hero({ show }: HeroProps) {
         justifyContent: "center",
         padding: "0 40px",
         position: "relative",
-        overflow: "hidden",
       }}
     >
-      {/* Premium Static Grid Background */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 0,
-          pointerEvents: "none",
-          backgroundImage: `
-            linear-gradient(to right, rgba(213, 62, 15, 0.05) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(213, 62, 15, 0.05) 1px, transparent 1px)
-          `,
-          backgroundSize: "60px 60px",
-          maskImage: "radial-gradient(circle at 50% 50%, black 0%, transparent 70%)",
-          WebkitMaskImage: "radial-gradient(circle at 50% 50%, black 0%, transparent 70%)",
-        }}
-      >
-        <motion.div
-          animate={{
-            x: mousePos.x * -1,
-            y: mousePos.y * -1,
-          }}
-          transition={{ type: "spring", stiffness: 50, damping: 30 }}
-          style={{
-            position: "absolute",
-            top: "-10%",
-            left: "-10%",
-            right: "-10%",
-            bottom: "-10%",
-            background: "radial-gradient(circle at 50% 50%, rgba(213, 62, 15, 0.1) 0%, transparent 40%)",
-          }}
-        />
-      </div>
-
-      <div style={{ overflow: "hidden", position: "relative", zIndex: 1 }}>
+      <div style={{ overflow: "hidden" }}>
         {lines.map((line, i) => (
           <motion.div
             key={line}
@@ -110,7 +59,6 @@ export default function Hero({ show }: HeroProps) {
           marginTop: 32,
           maxWidth: 480,
           lineHeight: 1.6,
-          position: "relative",
         }}
       >
         ERC-8004 self-certifying yield optimization. Four agents. One rule:
@@ -121,7 +69,7 @@ export default function Hero({ show }: HeroProps) {
         initial={{ opacity: 0 }}
         animate={show ? { opacity: 1 } : {}}
         transition={{ delay: 0.8, duration: 0.6 }}
-        style={{ marginTop: 48, position: "relative" }}
+        style={{ marginTop: 48 }}
       >
         <Link
           href="/dashboard"
@@ -139,7 +87,6 @@ export default function Hero({ show }: HeroProps) {
             transition: "all var(--fast) var(--ease-out)",
             borderRadius: "8px",
             fontWeight: 600,
-            backdropFilter: "blur(10px)",
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = "linear-gradient(135deg, #D53E0F, #9B0F06)";

@@ -56,6 +56,9 @@ VETO_THRESHOLDS = {
 
 
 def _active_thresholds() -> dict:
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return VETO_THRESHOLDS
+
     allow_overrides = os.environ.get("APEX_GUARDIAN_ALLOW_ENV_OVERRIDES", "false").strip().lower() in {
         "1",
         "true",

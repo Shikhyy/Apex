@@ -116,6 +116,7 @@ function parseEventToMessage(event: SSEEvent): AgentMessage | null {
       const pnl = Number(data.actual_pnl || 0);
       const protocol = data.executed_protocol as string;
       const err = data.execution_error as string;
+      const executionMode = String(data.execution_mode || "simulation").toLowerCase();
       const hasTx = txHash && txHash.length > 4;
       const hasErr = err && err.length > 2 && err !== "No ranked intents available.";
 
@@ -133,10 +134,14 @@ function parseEventToMessage(event: SSEEvent): AgentMessage | null {
       return {
         agent: type,
         timestamp: time,
-        title: hasTx
-          ? `Trade executed on-chain — ${protocol || "protocol"}`
-          : "Trade executed (simulated)",
+        title:
+          executionMode === "live"
+            ? `Trade executed live — ${protocol || "venue"}`
+            : executionMode === "failed"
+            ? "Execution failed"
+            : "Trade executed (simulated)",
         bullets: [
+          `Mode: ${executionMode}`,
           `Realized PnL: $${pnl.toFixed(2)}`,
           hasTx
             ? `TX Hash: ${txHash.slice(0, 14)}...${txHash.slice(-6)}`

@@ -219,12 +219,34 @@ async def fetch_curve_pools() -> list[YieldOpportunity]:
 # Volatility index (0-100)
 # ---------------------------------------------------------------------------
 
-_MOCK_VOLATILITY = 20.5
+_MOCK_VOLATILITY = 42.3
 
 async def fetch_volatility_index() -> float:
     """Fetch a market volatility index on a 0-100 scale.
     """
-    logger.info("Returning forced mock volatility index: %s", _MOCK_VOLATILITY)
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get("https://www.deribit.com/api/v2/public/get_volatility_index_data")
+            resp.raise_for_status()
+            data = resp.json()
+
+        result = data.get("result")
+        if isinstance(result, (int, float)):
+            return float(result)
+
+        # Support nested/list responses if Deribit shape changes.
+        if isinstance(result, list) and result:
+            last = result[-1]
+            if isinstance(last, (list, tuple)) and len(last) >= 2:
+                return float(last[1])
+            if isinstance(last, dict):
+                for key in ("volatility", "value", "close"):
+                    if key in last:
+                        return float(last[key])
+    except Exception as exc:
+        logger.warning("Volatility API failed (%s), using mock data", exc)
+
+    logger.info("Returning mock volatility index: %s", _MOCK_VOLATILITY)
     return _MOCK_VOLATILITY
 
 
@@ -232,13 +254,28 @@ async def fetch_volatility_index() -> float:
 # Sentiment score (-1.0 to +1.0)
 # ---------------------------------------------------------------------------
 
-_MOCK_SENTIMENT = 0.85
+_MOCK_SENTIMENT = 0.24
 
 
 async def fetch_sentiment() -> float:
     """Fetch market sentiment on a -1.0 (extreme fear) to +1.0 (extreme greed) scale.
     """
-    logger.info("Returning forced mock sentiment score: %s", _MOCK_SENTIMENT)
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get("https://api.alternative.me/fng/")
+            resp.raise_for_status()
+            data = resp.json()
+
+        value_raw = data.get("data", [{}])[0].get("value", "")
+        fear_greed = float(value_raw)
+        fear_greed = max(0.0, min(100.0, fear_greed))
+        # Map [0,100] -> [-1,+1]
+        sentiment = (fear_greed / 50.0) - 1.0
+        return round(sentiment, 4)
+    except Exception as exc:
+        logger.warning("Sentiment API failed (%s), using mock data", exc)
+
+    logger.info("Returning mock sentiment score: %s", _MOCK_SENTIMENT)
     return _MOCK_SENTIMENT
 
 

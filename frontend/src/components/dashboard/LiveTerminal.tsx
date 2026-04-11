@@ -56,9 +56,12 @@ function formatEventMessage(event: SSEEvent): string[] {
       const pnl = data.actual_pnl as number;
       const protocol = data.executed_protocol as string;
       const err = data.execution_error as string;
+      const executionMode = String(data.execution_mode || "simulation").toLowerCase();
       if (err && err.length > 2) {
+        lines.push(`Mode: ${executionMode}`);
         lines.push(`Error: ${err.slice(0, 100)}`);
       } else {
+        lines.push(`Mode: ${executionMode}`);
         if (protocol) lines.push(`Executed: ${protocol}`);
         if (pnl !== undefined) lines.push(`PnL: $${Number(pnl).toFixed(2)}`);
         if (txHash) lines.push(`TX: ${txHash.slice(0, 18)}...${txHash.slice(-6)}`);

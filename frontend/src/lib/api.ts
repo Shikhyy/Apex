@@ -85,7 +85,7 @@ export async function fetchLog() {
 }
 
 export async function triggerCycle() {
-  return request<{ status: string; message: string }>("/cycle", { method: "POST" });
+  return request<{ cycle: number }>("/cycle", { method: "POST" });
 }
 
 export async function fetchMarketPrices() {
