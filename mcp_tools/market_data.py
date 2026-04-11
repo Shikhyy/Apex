@@ -5,6 +5,7 @@ fallback to realistic mock data for demo reliability.
 """
 
 import logging
+import os
 from typing import Any, TypedDict
 
 import httpx
@@ -12,6 +13,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TIMEOUT = httpx.Timeout(10.0)
+
+
+def _strict_real_only() -> bool:
+    return os.environ.get("APEX_DISABLE_MOCKS", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 class YieldOpportunity(TypedDict):
@@ -83,8 +93,7 @@ async def fetch_aave_yields() -> list[YieldOpportunity]:
 
         api_data = data.get("data", [])
         if not api_data:
-            logger.warning("Aave Llama API returned no data, using mock")
-            return list(_MOCK_AAVE_POOLS)
+            raise RuntimeError("Aave Llama API returned no data")
 
         for p in api_data:
             symbol = p.get("symbol", "")
@@ -113,6 +122,8 @@ async def fetch_aave_yields() -> list[YieldOpportunity]:
             return pools
 
     except Exception as exc:
+        if _strict_real_only():
+            raise RuntimeError(f"Aave Llama API failed: {exc}") from exc
         logger.warning("Aave Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Aave pools", len(_MOCK_AAVE_POOLS))
@@ -209,6 +220,8 @@ async def fetch_curve_pools() -> list[YieldOpportunity]:
             return pools
 
     except Exception as exc:
+        if _strict_real_only():
+            raise RuntimeError(f"Curve Llama API failed: {exc}") from exc
         logger.warning("Curve Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Curve pools", len(_MOCK_CURVE_POOLS))
@@ -244,6 +257,8 @@ async def fetch_volatility_index() -> float:
                     if key in last:
                         return float(last[key])
     except Exception as exc:
+        if _strict_real_only():
+            raise RuntimeError(f"Volatility API failed: {exc}") from exc
         logger.warning("Volatility API failed (%s), using mock data", exc)
 
     logger.info("Returning mock volatility index: %s", _MOCK_VOLATILITY)
@@ -273,6 +288,8 @@ async def fetch_sentiment() -> float:
         sentiment = (fear_greed / 50.0) - 1.0
         return round(sentiment, 4)
     except Exception as exc:
+        if _strict_real_only():
+            raise RuntimeError(f"Sentiment API failed: {exc}") from exc
         logger.warning("Sentiment API failed (%s), using mock data", exc)
 
     logger.info("Returning mock sentiment score: %s", _MOCK_SENTIMENT)
@@ -347,6 +364,8 @@ async def fetch_compound_rates() -> list[YieldOpportunity]:
             return pools
 
     except Exception as exc:
+        if _strict_real_only():
+            raise RuntimeError(f"Compound Llama API failed: {exc}") from exc
         logger.warning("Compound Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Compound pools", len(_MOCK_COMPOUND_POOLS))

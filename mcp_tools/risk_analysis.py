@@ -10,6 +10,7 @@ and make veto decisions before execution.
 """
 
 import logging
+import os
 from typing import Optional
 
 from web3 import Web3
@@ -20,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 BASE_SEPOLIA_RPC = "https://sepolia.base.org"
 DEFAULT_REGISTRY_ADDRESS = "0xec6A0E1aB27882E222200F89D17f76eD8413c926"
+
+
+def _rpc_url() -> str:
+    return os.environ.get("BASE_SEPOLIA_RPC", BASE_SEPOLIA_RPC)
+
+
+def _registry_address() -> str:
+    return os.environ.get("REPUTATION_REGISTRY_ADDRESS", DEFAULT_REGISTRY_ADDRESS)
 
 REGISTRY_ABI = [
     {
@@ -299,24 +308,25 @@ def fetch_agent_reputation(
             - count (int): Number of feedback entries found
     """
     if registry_address is None:
-        registry_address = DEFAULT_REGISTRY_ADDRESS
+        registry_address = _registry_address()
 
-    default_result = {
+    error_result = {
         "agent_id": agent_id,
-        "avg_score": 0.0,
-        "normalized": 0.5,
+        "avg_score": None,
+        "normalized": None,
         "count": 0,
+        "error": "reputation_unavailable",
     }
 
     try:
-        w3 = Web3(Web3.HTTPProvider(BASE_SEPOLIA_RPC, request_kwargs={"timeout": 10}))
+        w3 = Web3(Web3.HTTPProvider(_rpc_url(), request_kwargs={"timeout": 10}))
 
         if not w3.is_connected():
             logger.warning(
-                "Could not connect to Base Sepolia RPC at %s — returning default reputation",
-                BASE_SEPOLIA_RPC,
+                "Could not connect to Base Sepolia RPC at %s",
+                _rpc_url(),
             )
-            return default_result
+            return error_result
 
         registry = w3.eth.contract(
             address=Web3.to_checksum_address(registry_address),
@@ -333,7 +343,13 @@ def fetch_agent_reputation(
 
         if not events:
             logger.info("No feedback events found for agent_id=%d", agent_id)
-            return default_result
+            return {
+                "agent_id": agent_id,
+                "avg_score": 0.0,
+                "normalized": 0.5,
+                "count": 0,
+                "error": "",
+            }
 
         scores = []
         for event in events:
@@ -352,15 +368,16 @@ def fetch_agent_reputation(
             "avg_score": round(avg_score, 2),
             "normalized": round(normalized, 4),
             "count": len(scores),
+            "error": "",
         }
 
     except Exception as e:
         logger.error(
-            "Failed to fetch reputation for agent_id=%d: %s — returning default",
+            "Failed to fetch reputation for agent_id=%d: %s",
             agent_id,
             e,
         )
-        return default_result
+        return error_result
 
 
 def check_protocol_audit_status(protocol: str) -> dict:
@@ -424,10 +441,10 @@ def fetch_reputation_signals(
     - block_number (int)
     """
     if registry_address is None:
-        registry_address = DEFAULT_REGISTRY_ADDRESS
+        registry_address = _registry_address()
 
     try:
-        w3 = Web3(Web3.HTTPProvider(BASE_SEPOLIA_RPC, request_kwargs={"timeout": 10}))
+        w3 = Web3(Web3.HTTPProvider(_rpc_url(), request_kwargs={"timeout": 10}))
 
         if not w3.is_connected():
             return []

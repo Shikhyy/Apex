@@ -65,7 +65,7 @@ def _resolve_execution_route(opportunity: dict) -> str:
     if protocol in {"kraken", "cex"} or "/" in pool:
         return "kraken"
 
-    return os.environ.get("APEX_EXECUTION_MODE", "simulation").strip().lower()
+    return os.environ.get("APEX_EXECUTION_MODE", "surge").strip().lower()
 
 
 def _map_protocol_to_pair(opportunity: dict) -> str:
@@ -171,8 +171,7 @@ def _attempt_real_execution(
     logger.info("[EXECUTOR] Proceeding with Web3 execution on Base Sepolia...")
 
     if not private_key or not router_address:
-        logger.warning("[EXECUTOR] Missing RPC keys or RiskRouter address. Using simulation.")
-        return _simulate_execution(opportunity, amount_usd)
+        raise RuntimeError("Missing APEX_PRIVATE_KEY or RISK_ROUTER_ADDRESS for live execution")
 
     try:
         from web3 import Web3
@@ -181,8 +180,7 @@ def _attempt_real_execution(
 
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         if not w3.is_connected():
-            logger.warning("[EXECUTOR] RPC not reachable (%s). Using simulation.", rpc_url)
-            return _simulate_execution(opportunity, amount_usd)
+            raise RuntimeError(f"RPC not reachable: {rpc_url}")
 
         account = Account.from_key(private_key)
 
@@ -224,8 +222,7 @@ def _attempt_real_execution(
                 artifact = __import__("json").load(f)
                 abi = artifact["abi"]
         except Exception:
-            logger.warning("[EXECUTOR] RiskRouter.json missing, falling back to mock")
-            return _simulate_execution(opportunity, amount_usd)
+            raise RuntimeError("RiskRouter ABI missing at contracts/out/RiskRouter.sol/RiskRouter.json")
 
         # 3. Setup Contract
         router_contract = w3.eth.contract(address=router_address, abi=abi)
@@ -296,11 +293,16 @@ def _attempt_real_execution(
 
     except Exception as e:
         logger.error(f"[EXECUTOR] Base Sepolia tx failed: {str(e)}")
-        fallback = _simulate_execution(opportunity, amount_usd)
-        fallback["execution_mode"] = "simulation"
-        fallback["fallback_error"] = str(e)
-        fallback["executing_wallet"] = user_wallet or ""
-        return fallback
+        return {
+            "execution_time": 0.0,
+            "actual_pnl": 0.0,
+            "tx_hash": "",
+            "protocol": "base-sepolia",
+            "execution_mode": "failed",
+            "error": str(e),
+            "fallback_error": str(e),
+            "executing_wallet": user_wallet or "",
+        }
 
 
 def executor_node(state: APEXState) -> dict:
@@ -356,7 +358,7 @@ def executor_node(state: APEXState) -> dict:
             "tx_hash": result_tx_hash,
             "executed_protocol": protocol,
             "actual_pnl": result["actual_pnl"],
-            "execution_error": result.get("error", ""),
+                "execution_error": result.get("error", result.get("fallback_error", "")),
             "execution_mode": execution_mode,
             "executing_wallet": result.get("executing_wallet", user_wallet or ""),
         }

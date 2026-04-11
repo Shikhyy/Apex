@@ -17,6 +17,15 @@ from agents.graph import YieldOpportunity
 logger = logging.getLogger(__name__)
 
 TIMEOUT = httpx.Timeout(10.0)
+
+
+def _strict_real_only() -> bool:
+    return os.environ.get("APEX_DISABLE_MOCKS", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 SUBGRAPH_URL = os.environ.get(
     "AERODROME_SUBGRAPH_URL",
     "https://api.goldsky.com/api/public/project_clwhqj4y9a8bq01z0g2w5b0ql/subgraphs/aerodrome-finance-aerodrome-base-mainnet/1.0.0/gn",
@@ -136,6 +145,8 @@ async def fetch_aerodrome_pools() -> list[YieldOpportunity]:
             return pools[:15]
 
     except Exception as exc:
+        if _strict_real_only():
+            raise RuntimeError(f"Base Llama API failed: {exc}") from exc
         logger.warning("Base Llama API failed (%s), using mock data", exc)
 
     logger.info("Returning %d mock Aerodrome pools", len(_MOCK_AERO_POOLS))

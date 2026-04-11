@@ -153,7 +153,15 @@ def veto_node(state: APEXState) -> dict:
 
 def guardian_router(state: APEXState) -> str:
     """Route based on Guardian decision."""
+    force_executor = os.environ.get("APEX_FORCE_EXECUTOR_ON_VETO", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     if state.get("guardian_decision") == "APPROVED":
+        return "executor"
+    if force_executor:
         return "executor"
     return "veto"
 

@@ -34,13 +34,12 @@ MIN_POSITION_USD = 100.0
 def _get_signer() -> Optional[Account]:
     """Load signing account from APEX_PRIVATE_KEY env var.
 
-    Returns an eth_account.Account if the key is set, otherwise None
-    so callers can fall back to mock signing.
+    Returns an eth_account.Account if the key is set.
+    Raises when key is missing so signing never silently uses mock data.
     """
     private_key = os.environ.get("APEX_PRIVATE_KEY")
     if not private_key:
-        logger.warning("APEX_PRIVATE_KEY not set — using mock signing")
-        return None
+        raise RuntimeError("APEX_PRIVATE_KEY not set; EIP-712 signing is required")
     return Account.from_key(private_key)
 
 
@@ -63,8 +62,7 @@ def generate_eip712_intent(trade_intent: dict) -> dict:
     """Sign a TradeIntent using EIP-712 typed data.
 
     Builds the EIP-712 domain + types, encodes the message, and signs it
-    with the account derived from APEX_PRIVATE_KEY.  If no key is set a
-    mock signature is returned so development can continue without a wallet.
+    with the account derived from APEX_PRIVATE_KEY.
 
     Args:
         trade_intent: dict with keys matching the TradeIntent TypedDict
@@ -88,18 +86,13 @@ def generate_eip712_intent(trade_intent: dict) -> dict:
     }
 
     signer = _get_signer()
-
-    if signer is not None:
-        signable = encode_typed_data(
-            domain_data=EIP712_DOMAIN,
-            message_types=EIP712_TYPES,
-            message_data=message,
-        )
-        signed = signer.sign_message(signable)
-        signature = signed.signature.hex()
-    else:
-        # Mock signature for development (65 zero-bytes + recovery id 27)
-        signature = "0x" + "00" * 65
+    signable = encode_typed_data(
+        domain_data=EIP712_DOMAIN,
+        message_types=EIP712_TYPES,
+        message_data=message,
+    )
+    signed = signer.sign_message(signable)
+    signature = signed.signature.hex()
 
     trade_intent["eip712_signature"] = signature
     trade_intent["intent_hash"] = intent_hash

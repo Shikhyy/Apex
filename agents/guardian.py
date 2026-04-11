@@ -205,6 +205,12 @@ def guardian_node(state: APEXState) -> dict:
         scout_id = state.get("scout_agent_id", 0)
         if scout_id > 0:
             rep = fetch_agent_reputation(scout_id)
+            if rep.get("normalized") is None:
+                return _veto(
+                    "VETOED",
+                    "uncertainty",
+                    f"Scout reputation unavailable: {rep.get('error', 'unknown_error')}",
+                )
             if rep["normalized"] < thresholds["min_scout_rep"]:
                 print(
                     f"[Guardian] VETO: scout_rep={rep['normalized']:.2f} < {thresholds['min_scout_rep']}"
