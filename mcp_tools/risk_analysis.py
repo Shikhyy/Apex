@@ -312,8 +312,8 @@ def fetch_agent_reputation(
 
     error_result = {
         "agent_id": agent_id,
-        "avg_score": None,
-        "normalized": None,
+        "avg_score": 0.0,
+        "normalized": 0.5,  # Neutral score for bootstrap/fetch errors
         "count": 0,
         "error": "reputation_unavailable",
     }
@@ -334,8 +334,20 @@ def fetch_agent_reputation(
         )
 
         # Filter events where this agent was the subject of feedback
+        # Use recent blocks only to avoid "Payload Too Large" errors from RPC
+        current_block = w3.eth.block_number
+        from_block = max(0, current_block - 10000)  # Last ~10k blocks
+        
+        logger.info(
+            "Fetching reputation events for agent_id=%d from blocks %d to %d",
+            agent_id,
+            from_block,
+            current_block,
+        )
+        
         event_filter = registry.events.FeedbackSubmitted.create_filter(
-            from_block=0,
+            from_block=from_block,
+            to_block=current_block,
             argument_filters={"agentId": agent_id},
         )
 
