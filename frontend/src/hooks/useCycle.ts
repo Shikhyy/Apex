@@ -19,7 +19,7 @@ export function useCycle() {
 
   const triggerCycle = useCallback(async () => {
     try {
-      setState((s) => ({ ...s, status: "running", activeNode: "scout" }));
+      setState((s) => ({ ...s, status: "running", activeNode: "scout", decision: null }));
       await apiTriggerCycle();
     } catch {
       setState((s) => ({ ...s, status: "idle", activeNode: null }));
@@ -37,17 +37,20 @@ export function useCycle() {
 
       switch (type) {
         case "scout":
+          next.status = "running";
           next.activeNode = "scout";
           break;
+
         case "strategist":
           next.activeNode = "strategist";
           break;
+
         case "guardian": {
           next.activeNode = "guardian";
           const decision = data as Record<string, unknown>;
           if (decision.guardian_decision !== undefined) {
-            // Backend emits APPROVED/VETOED in uppercase
-            const approved = String(decision.guardian_decision).toUpperCase() === "APPROVED";
+            const approved =
+              String(decision.guardian_decision).toUpperCase() === "APPROVED";
             next.decision = {
               approved,
               reason: (decision.guardian_reason as string) || "",
@@ -55,8 +58,6 @@ export function useCycle() {
               detail: (decision.guardian_detail as string) || "",
               txHash: decision.tx_hash as string | undefined,
             };
-            // Only increment counters based on the guardian decision
-            // (veto node SSE event should NOT double-count)
             if (!approved) {
               next.vetoCount = s.vetoCount + 1;
             } else {
@@ -65,26 +66,33 @@ export function useCycle() {
           }
           break;
         }
+
         case "executor":
           next.activeNode = "executor";
           if (data.tx_hash) next.txHash = data.tx_hash as string;
+          if (data.actual_pnl !== undefined) {
+            next.sessionPnl = s.sessionPnl + Number(data.actual_pnl);
+          }
           break;
+
         case "veto":
-          // veto node fires after guardian VETO — don't double-count vetoCount,
-          // just advance the active node to show the veto path visually
+          // veto node fires after guardian VETO
           next.activeNode = null;
           break;
+
         case "done":
           next.status = "complete";
           next.activeNode = null;
           if (data.session_pnl !== undefined) next.sessionPnl = Number(data.session_pnl);
           if (data.cycle_number !== undefined) next.cycleNumber = Number(data.cycle_number);
-          // Sync final veto/approval counts from authoritative backend state
           if (data.veto_count !== undefined) next.vetoCount = Number(data.veto_count);
-          if (data.approval_count !== undefined) next.approvalCount = Number(data.approval_count);
+          if (data.approval_count !== undefined)
+            next.approvalCount = Number(data.approval_count);
+
+          // Auto-dismiss decision after 10s
           dismissTimer.current = setTimeout(() => {
-            setState((prev) => ({ ...prev, decision: null }));
-          }, 8000);
+            setState((prev) => ({ ...prev, decision: null, status: "idle" }));
+          }, 10000);
           break;
       }
 

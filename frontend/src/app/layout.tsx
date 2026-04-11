@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Bebas_Neue, DM_Mono, DM_Sans } from "next/font/google";
 import "../styles/globals.css";
+import "../styles/theme.css";
 import { Providers } from "./providers";
 
 const bebas = Bebas_Neue({

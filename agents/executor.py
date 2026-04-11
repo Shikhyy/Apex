@@ -127,22 +127,31 @@ def _attempt_real_execution(opportunity: dict, amount_usd: float) -> dict:
 
         signed_tx = account.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        logger.info(f"[EXECUTOR] Broadcasted SubmitTradeIntent tx: {tx_hash.hex()}")
+        logger.info(f"[EXECUTOR] Broadcasted SubmitTradeIntent tx: {tx_hash.hex()}. Waiting for confirmation...")
+        w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        logger.info(f"[EXECUTOR] TradeIntent Confirmed!")
 
         # 6. Simulate returning of Profit through contract (grows the money!)
         pnl = amount_usd * (opportunity.get("apy", 0) / 100) * random.uniform(0.9, 1.1)
         wei_profit = int(pnl * 1e18)
+        
+        # Explicitly fetch the next pending nonce to avoid race conditions
+        next_nonce = w3.eth.get_transaction_count(account.address, "pending")
+        
         record_tx = router_contract.functions.recordProfit(
             account.address,
             wei_profit
         ).build_transaction({
             "from": account.address,
-            "nonce": tx_nonce + 1,
+            "nonce": next_nonce,
             "gas": 150_000,
             "gasPrice": w3.eth.gas_price,
         })
         signed_record_tx = account.sign_transaction(record_tx)
-        w3.eth.send_raw_transaction(signed_record_tx.raw_transaction)
+        record_tx_hash = w3.eth.send_raw_transaction(signed_record_tx.raw_transaction)
+        logger.info(f"[EXECUTOR] Broadcasted recordProfit tx. Waiting for confirmation...")
+        w3.eth.wait_for_transaction_receipt(record_tx_hash, timeout=120)
+        logger.info(f"[EXECUTOR] Profit recording Confirmed!")
 
         return {
             "execution_time": 2.5,

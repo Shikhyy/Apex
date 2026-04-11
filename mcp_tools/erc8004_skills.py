@@ -100,7 +100,7 @@ async def post_reputation_signal(
         abi=abi,
     )
 
-    nonce = w3.eth.get_transaction_count(account.address)
+    nonce = w3.eth.get_transaction_count(account.address, "pending")
     feedback_hash = Web3.keccak(text=evidence_uri)
     tx = contract.functions.giveFeedback(
         subject_agent_id,

@@ -12,8 +12,6 @@ html {
 }
 
   /* Import new APEX theme */
-  @import './theme.css';
-
 body {
   background:
     radial-gradient(1200px 700px at 80% -20%, rgba(155, 15, 6, 0.22), transparent 60%),

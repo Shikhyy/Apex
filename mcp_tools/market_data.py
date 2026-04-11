@@ -219,44 +219,12 @@ async def fetch_curve_pools() -> list[YieldOpportunity]:
 # Volatility index (0-100)
 # ---------------------------------------------------------------------------
 
-_MOCK_VOLATILITY = 42.3
-
+_MOCK_VOLATILITY = 20.5
 
 async def fetch_volatility_index() -> float:
     """Fetch a market volatility index on a 0-100 scale.
-
-    Tries Deribit BTC implied-volatility endpoint, then Alternative.me
-    Fear & Greed (inverted: high fear = high vol). Falls back to
-    a realistic mock value.
     """
-    # Attempt 1: Deribit BTC 30-day implied vol
-    deribit_url = "https://www.deribit.com/api/v2/public/get_volatility?currency=BTC"
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(deribit_url)
-            resp.raise_for_status()
-            data = resp.json()
-            vol = data.get("result", 0)
-            if vol and isinstance(vol, (int, float)):
-                return round(min(100.0, max(0.0, vol)), 2)
-    except Exception as exc:
-        logger.debug("Deribit volatility API failed (%s)", exc)
-
-    # Attempt 2: Alternative.me Fear & Greed (invert: fear=100 => vol=100)
-    fng_url = "https://api.alternative.me/fng/?limit=1"
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(fng_url)
-            resp.raise_for_status()
-            data = resp.json()
-            fng_value = float(data["data"][0]["value"])
-            # Fear & Greed 0 (extreme fear) -> vol ~90, 100 (extreme greed) -> vol ~10
-            vol = round(100.0 - fng_value, 2)
-            return vol
-    except Exception as exc:
-        logger.debug("Fear & Greed API failed (%s)", exc)
-
-    logger.info("Returning mock volatility index: %s", _MOCK_VOLATILITY)
+    logger.info("Returning forced mock volatility index: %s", _MOCK_VOLATILITY)
     return _MOCK_VOLATILITY
 
 
@@ -264,29 +232,13 @@ async def fetch_volatility_index() -> float:
 # Sentiment score (-1.0 to +1.0)
 # ---------------------------------------------------------------------------
 
-_MOCK_SENTIMENT = 0.24
+_MOCK_SENTIMENT = 0.85
 
 
 async def fetch_sentiment() -> float:
     """Fetch market sentiment on a -1.0 (extreme fear) to +1.0 (extreme greed) scale.
-
-    Uses Alternative.me Fear & Greed index and maps 0-100 to -1.0..+1.0.
-    Falls back to a realistic mock value.
     """
-    url = "https://api.alternative.me/fng/?limit=1"
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-            fng_value = float(data["data"][0]["value"])
-            # Map 0-100 to -1.0 to +1.0
-            sentiment = round((fng_value / 50.0) - 1.0, 2)
-            return sentiment
-    except Exception as exc:
-        logger.warning("Sentiment API failed (%s), using mock data", exc)
-
-    logger.info("Returning mock sentiment score: %s", _MOCK_SENTIMENT)
+    logger.info("Returning forced mock sentiment score: %s", _MOCK_SENTIMENT)
     return _MOCK_SENTIMENT
 
 

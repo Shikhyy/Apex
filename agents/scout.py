@@ -215,8 +215,10 @@ def scout_node(state: APEXState) -> dict:
             risk_context = "\nPRISM Risk Metrics:\n" + "\n".join(risk_lines)
 
         # 3. Prepare data summary for LLM
+        # Limit to top 15 by liquidity to avoid LLM context length issues
+        top_opps = sorted(raw_opportunities, key=lambda x: x.get("liquidity_usd", 0), reverse=True)[:15]
         opp_summary = json.dumps(
-            [_opportunity_to_dict(op) for op in raw_opportunities],
+            [_opportunity_to_dict(op) for op in top_opps],
             indent=2,
         )
 

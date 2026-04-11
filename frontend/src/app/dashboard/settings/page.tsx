@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAccount, useWriteContract } from "wagmi";
 import Topbar from "@/components/dashboard/Topbar";
+import Card from "@/components/ui/Card";
 import { ADDRESSES, RISK_ROUTER_ABI } from "@/lib/contracts";
 import { parseUnits } from "viem";
 
