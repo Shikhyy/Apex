@@ -12,7 +12,7 @@ import { SkeletonCard, SkeletonStat } from "@/components/ui/Skeleton";
 import { useSSE } from "@/hooks/useSSE";
 import { useCycle } from "@/hooks/useCycle";
 import { useReputation } from "@/hooks/useReputation";
-import { fetchHealth, fetchLog, triggerCycle } from "@/lib/api";
+import { fetchHealth, fetchLog } from "@/lib/api";
 import type { VetoEntry, AgentName } from "@/lib/types";
 
 const agents: { name: AgentName; role: string; color: string; agentId: number }[] = [
