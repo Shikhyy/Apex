@@ -357,7 +357,10 @@ def executor_node(state: APEXState) -> dict:
         # Record trade to session manager for PnL tracking
         try:
             from api import _get_session_manager
-            from lib.models import ExecutedTrade
+            try:
+                from lib.models import ExecutedTrade
+            except ModuleNotFoundError:
+                from models import ExecutedTrade
             from mcp_tools.execution import extract_surge_gas_cost
             
             manager = _get_session_manager()

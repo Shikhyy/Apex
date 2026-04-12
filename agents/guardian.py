@@ -7,7 +7,6 @@ from typing import Optional
 from langchain_groq import ChatGroq
 from agents.graph import APEXState, GuardianReason
 from mcp_tools.risk_analysis import calculate_projected_drawdown, fetch_agent_reputation
-from lib.session_manager import SessionManager
 from dotenv import load_dotenv
 import os
 

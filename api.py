@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from contextlib import suppress
@@ -16,6 +17,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from dotenv import load_dotenv
+
+# Make imports resilient on platforms where uvicorn starts from a different cwd.
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+LIB_ROOT = os.path.join(APP_ROOT, "lib")
+if APP_ROOT not in sys.path:
+    sys.path.insert(0, APP_ROOT)
+if LIB_ROOT not in sys.path:
+    sys.path.insert(0, LIB_ROOT)
 
 load_dotenv()
 
@@ -335,7 +344,15 @@ async def _start_autotrader() -> None:
     
     # Run startup health checks
     try:
-        from lib.health_check import run_all_checks, log_health_summary
+        try:
+            from lib.health_check import run_all_checks, log_health_summary
+        except ModuleNotFoundError:
+            import sys
+
+            lib_path = os.path.join(os.path.dirname(__file__), "lib")
+            if lib_path not in sys.path:
+                sys.path.insert(0, lib_path)
+            from health_check import run_all_checks, log_health_summary
         results, critical_ok = await run_all_checks()
         log_health_summary(results)
         if not critical_ok:
@@ -810,7 +827,15 @@ def _get_session_manager():
     """Get or initialize session manager."""
     global _session_manager
     if _session_manager is None:
-        from lib.session_manager import SessionManager
+        try:
+            from lib.session_manager import SessionManager
+        except ModuleNotFoundError:
+            import sys
+
+            lib_path = os.path.join(os.path.dirname(__file__), "lib")
+            if lib_path not in sys.path:
+                sys.path.insert(0, lib_path)
+            from session_manager import SessionManager
         _session_manager = SessionManager(starting_balance_usd=0.0)
     return _session_manager
 

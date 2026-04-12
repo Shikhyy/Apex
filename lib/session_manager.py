@@ -3,7 +3,10 @@
 import time
 import uuid
 from typing import Optional
-from lib.models import SessionMetrics, ExecutedTrade, TradePreferences, OpenPosition
+try:
+    from lib.models import SessionMetrics, ExecutedTrade, TradePreferences, OpenPosition
+except ModuleNotFoundError:
+    from models import SessionMetrics, ExecutedTrade, TradePreferences, OpenPosition
 
 import logging
 
