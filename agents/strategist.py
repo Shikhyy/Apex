@@ -1,7 +1,7 @@
 """Strategist agent — trade intent generation."""
 
-from langchain_groq import ChatGroq
 from agents.graph import APEXState, TradeIntent, YieldOpportunity
+from mcp_tools.llm_fallback import invoke_with_fallback
 from dotenv import load_dotenv
 import os
 import hashlib
@@ -10,18 +10,6 @@ import json
 load_dotenv()
 
 _llm = None
-
-
-def _get_llm():
-    global _llm
-    if _llm is None:
-        _llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,
-            api_key=os.environ.get("GROQ_API_KEY", ""),
-            max_retries=3,
-        )
-    return _llm
 
 
 STRATEGIST_SYSTEM = """You are the STRATEGIST agent in the APEX yield optimizer.
@@ -114,13 +102,13 @@ Opportunities:
 Return ONLY a JSON array of objects with keys: protocol, pool, rank, risk_adjusted_score."""
 
     try:
-        response = _get_llm().invoke(
+        content = invoke_with_fallback(
             [
                 ("system", STRATEGIST_SYSTEM),
                 ("human", prompt),
-            ]
-        )
-        content = response.content.strip()
+            ],
+            temperature=0.1,
+        ).strip()
         if content.startswith("```"):
             content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         scores = json.loads(content)

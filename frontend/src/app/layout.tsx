@@ -29,7 +29,12 @@ export const metadata: Metadata = {
   description:
     "Multi-agent DeFi yield optimizer with verifiable ERC-8004 on-chain trust. Built for the lablab.ai AI Trading Agents Hackathon.",
   icons: {
-    icon: "/favicon.svg",
+    icon: [
+      { url: "/icon.svg?v=2", type: "image/svg+xml" },
+      { url: "/favicon.svg?v=2", type: "image/svg+xml" },
+    ],
+    shortcut: ["/favicon.svg?v=2"],
+    apple: [{ url: "/apex-logo.jpg" }],
   },
   openGraph: {
     title: "APEX",

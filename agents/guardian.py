@@ -3,9 +3,8 @@
 import json
 import asyncio
 import logging
-from typing import Optional
-from langchain_groq import ChatGroq
 from agents.graph import APEXState, GuardianReason
+from mcp_tools.llm_fallback import invoke_with_fallback
 from mcp_tools.risk_analysis import calculate_projected_drawdown, fetch_agent_reputation
 from dotenv import load_dotenv
 import os
@@ -14,7 +13,21 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-_llm: Optional[ChatGroq] = None
+_llm = None
+
+
+class _LLMProxy:
+    """Compatibility wrapper that exposes .invoke() and delegates to failover router."""
+
+    def __init__(self, temperature: float = 0.0):
+        self.temperature = temperature
+
+    def invoke(self, messages):
+        class _Response:
+            def __init__(self, content: str):
+                self.content = content
+
+        return _Response(invoke_with_fallback(messages, temperature=self.temperature))
 
 
 def _env_float(name: str, default: float) -> float:
@@ -28,20 +41,20 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def _get_llm() -> Optional[ChatGroq]:
-    """Lazy LLM initialization — returns None if no API key."""
+def _get_llm():
+    """Return LLM proxy or None when no keys are configured.
+
+    Kept for compatibility with existing tests that patch this symbol.
+    """
     global _llm
-    if _llm is not None:
-        return _llm
-    api_key = os.environ.get("GROQ_API_KEY", "")
-    if not api_key:
-        return None
-    _llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0.0,
-        api_key=api_key,
-        max_retries=3,
+    has_any_key = any(
+        os.environ.get(name, "").strip()
+        for name in ("GROQ_API_KEY", "GROQ_API_KEY_FALLBACK", "GEMINI_API_KEY")
     )
+    if not has_any_key:
+        return None
+    if _llm is None:
+        _llm = _LLMProxy(temperature=0.0)
     return _llm
 
 
@@ -224,7 +237,7 @@ def guardian_node(state: APEXState) -> dict:
             rep = fetch_agent_reputation(scout_id)
             print(
                 f"[Guardian] Scout reputation check: {rep['normalized']:.2f} "
-                f"(threshold: {thresholds['min_scout_rep']}, events: {rep['count']})"
+                f"(threshold: {thresholds['min_scout_rep']}, events: {rep.get('count', 0)})"
             )
             if rep["normalized"] < thresholds["min_scout_rep"]:
                 print(
@@ -270,12 +283,13 @@ def guardian_node(state: APEXState) -> dict:
         llm = _get_llm()
         if llm is None:
             detail = (
-                "Groq API key not configured. Using deterministic approval after "
+                "No LLM API keys configured. Using deterministic approval after "
                 "passing all safety checks."
             )
-            print("[Guardian] No Groq API key — using deterministic APPROVAL")
+            print("[Guardian] No LLM API keys — using deterministic APPROVAL")
             _post_guardian_signal(state, "APPROVED", "safe_to_proceed", detail, 0.55)
             return _veto("APPROVED", "safe_to_proceed", detail, 0.55)
+
         response = llm.invoke([("system", system_prompt), ("human", user_prompt)])
         content = response.content.strip()
 

@@ -5,7 +5,6 @@ import json
 import logging
 from typing import Any
 
-from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.graph import APEXState, YieldOpportunity
@@ -18,6 +17,7 @@ from mcp_tools.market_data import (
 )
 from mcp_tools.aerodrome_pools import fetch_aerodrome_pools
 from mcp_tools.prism_api import fetch_signals, fetch_risk
+from mcp_tools.llm_fallback import invoke_with_fallback
 from dotenv import load_dotenv
 import os
 
@@ -28,15 +28,25 @@ logger = logging.getLogger(__name__)
 _llm = None
 
 
+class _LLMProxy:
+    """Compatibility wrapper that exposes .invoke() and delegates to failover router."""
+
+    def __init__(self, temperature: float = 0.1):
+        self.temperature = temperature
+
+    def invoke(self, messages):
+        class _Response:
+            def __init__(self, content: str):
+                self.content = content
+
+        return _Response(invoke_with_fallback(messages, temperature=self.temperature))
+
+
 def _get_llm():
+    """Return LLM proxy (kept for test compatibility)."""
     global _llm
     if _llm is None:
-        _llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,
-            api_key=os.environ.get("GROQ_API_KEY", ""),
-            max_retries=3,
-        )
+        _llm = _LLMProxy(temperature=0.1)
     return _llm
 
 

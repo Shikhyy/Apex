@@ -385,14 +385,20 @@ async def root():
 
 @app.get("/health")
 async def health():
-    groq_set = bool(os.environ.get("GROQ_API_KEY"))
+    groq_primary_set = bool(os.environ.get("GROQ_API_KEY"))
+    groq_fallback_set = bool(os.environ.get("GROQ_API_KEY_FALLBACK"))
+    gemini_set = bool(os.environ.get("GEMINI_API_KEY"))
+    llm_set = groq_primary_set or groq_fallback_set or gemini_set
     key_set = bool(os.environ.get("APEX_PRIVATE_KEY"))
     ids = _load_agent_ids()
     ids_loaded = all(v and v > 0 for v in ids.values())
 
     return {
         "status": "ok",
-        "groq_key_set": groq_set,
+        "llm_key_set": llm_set,
+        "groq_key_set": groq_primary_set,
+        "groq_fallback_key_set": groq_fallback_set,
+        "gemini_key_set": gemini_set,
         "apex_private_key_set": key_set,
         "agent_ids_loaded": ids_loaded,
         "autotrader_enabled": AUTO_TRADER_ENABLED,

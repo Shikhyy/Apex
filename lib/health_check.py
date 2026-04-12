@@ -154,9 +154,14 @@ async def check_erc8004_registry() -> HealthCheckResult:
 async def check_environment_variables() -> HealthCheckResult:
     """Verify all required environment variables are set."""
     required = [
-        "GROQ_API_KEY",
         "BASE_SEPOLIA_RPC",
         "IDENTITY_REGISTRY_ADDRESS",
+    ]
+
+    llm_keys = [
+        os.environ.get("GROQ_API_KEY", "").strip(),
+        os.environ.get("GROQ_API_KEY_FALLBACK", "").strip(),
+        os.environ.get("GEMINI_API_KEY", "").strip(),
     ]
     
     optional = [
@@ -175,6 +180,14 @@ async def check_environment_variables() -> HealthCheckResult:
             False,
             f"Missing required: {', '.join(missing)}",
             critical=True
+        )
+
+    if not any(llm_keys):
+        return HealthCheckResult(
+            "Environment Variables",
+            False,
+            "Missing LLM key. Set one of GROQ_API_KEY, GROQ_API_KEY_FALLBACK, GEMINI_API_KEY",
+            critical=True,
         )
     
     return HealthCheckResult(
