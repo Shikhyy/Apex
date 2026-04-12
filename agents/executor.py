@@ -354,6 +354,58 @@ def executor_node(state: APEXState) -> dict:
             pool,
         )
 
+        # Record trade to session manager for PnL tracking
+        try:
+            from api import _get_session_manager
+            from lib.models import ExecutedTrade
+            from mcp_tools.execution import extract_surge_gas_cost
+            
+            manager = _get_session_manager()
+            
+            # Extract gas cost if this was a Surge/on-chain trade
+            gas_cost = 0.0
+            if protocol == "surge" and result_tx_hash:
+                gas_cost = extract_surge_gas_cost(result_tx_hash)
+            
+            trade = ExecutedTrade(
+                trade_id=result_tx_hash or fallback_tx_hash,
+                timestamp=time.time(),
+                cycle_number=state.get("cycle_number", 0),
+                source=protocol,
+                pair=f"{pool}",
+                side="long",
+                amount_usd=amount_usd,
+                entry_price=1.0,  # Simplified
+                exit_price=1.0 + (apy / 100),  # Simplified
+                gross_pnl=result["actual_pnl"],
+                kraken_fee_usd=0.0,
+                gas_cost_usd=gas_cost,
+                fees_usd=gas_cost,
+                net_pnl=result["actual_pnl"] - gas_cost,
+                kraken_order_id=result.get("kraken_order_id"),
+                tx_hash=result_tx_hash,
+                guardian_approved=True,
+                is_open=False,
+                unrealized_pnl=None,
+            )
+            manager.add_executed_trade(trade)
+        except Exception as e:
+            logger.warning(f"Failed to record trade to session manager: {e}")
+        
+        # Submit ERC-8004 evidence on-chain
+        try:
+            from mcp_tools.erc8004_evidence import submit_executor_outcome
+            evidence_uri = submit_executor_outcome(
+                trade_id=result_tx_hash or fallback_tx_hash,
+                success=(execution_mode == "live"),
+                pnl=result["actual_pnl"],
+                execution_protocol=protocol,
+                tx_hash=result_tx_hash,
+            )
+            logger.info(f"[EXECUTOR] ERC-8004 evidence submitted: {evidence_uri}")
+        except Exception as e:
+            logger.warning(f"Failed to submit ERC-8004 evidence: {e}")
+
         return {
             "tx_hash": result_tx_hash,
             "executed_protocol": protocol,

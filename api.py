@@ -23,6 +23,9 @@ from agents.graph import apex_graph, _default_state, _load_agent_ids
 from mcp_tools.risk_analysis import fetch_agent_reputation, fetch_reputation_signals
 from mcp_tools.social import auto_share_cycle, get_social_stats
 from db import get_db
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="APEX", version="1.0.0")
 
@@ -56,7 +59,7 @@ AUTO_TRADER_ENABLED = os.environ.get("APEX_AUTOTRADE_ENABLED", "true").strip().l
     "off",
 }
 AUTO_TRADER_INTERVAL_SECONDS = float(
-    os.environ.get("APEX_AUTOTRADE_INTERVAL_SECONDS", "30")
+    os.environ.get("APEX_AUTOTRADE_INTERVAL_SECONDS", "60")
 )
 AUTONOMOUS_STRICT_MODE = os.environ.get(
     "APEX_AUTONOMOUS_STRICT_MODE", "true"
@@ -220,6 +223,14 @@ async def _execute_cycle(user_wallet: Optional[str] = None) -> None:
                         )
                     state["cycle_number"] = state.get("cycle_number", 0)
 
+        # Increment session cycle counter
+        try:
+            from api import _get_session_manager
+            manager = _get_session_manager()
+            manager.increment_cycle()
+        except Exception as e:
+            print(f"[APEX] Failed to increment cycle count: {e}")
+
         # Final done event
         done_event = {
             "node": "done",
@@ -306,7 +317,16 @@ async def _start_autotrader() -> None:
     global _autotrader_task
     if AUTO_TRADER_ENABLED and (_autotrader_task is None or _autotrader_task.done()):
         _autotrader_task = asyncio.create_task(_autotrader_loop())
-
+    
+    # Run startup health checks
+    try:
+        from lib.health_check import run_all_checks, log_health_summary
+        results, critical_ok = await run_all_checks()
+        log_health_summary(results)
+        if not critical_ok:
+            logger.warning("⚠️  Some critical health checks failed. Trading may be limited.")
+    except Exception as e:
+        logger.error(f"Health check failed to run: {e}")
 
 @app.on_event("shutdown")
 async def _stop_autotrader() -> None:
@@ -761,3 +781,121 @@ async def paper_sell(pair: str = "BTCUSD", volume: float = 0.001):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Paper sell failed: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# PnL Dashboard Endpoints (NEW)
+# ---------------------------------------------------------------------------
+
+# Global session manager instance
+_session_manager = None
+
+
+def _get_session_manager():
+    """Get or initialize session manager."""
+    global _session_manager
+    if _session_manager is None:
+        from lib.session_manager import SessionManager
+        _session_manager = SessionManager(starting_balance_usd=0.0)
+    return _session_manager
+
+
+@app.get("/pnl/session")
+async def get_pnl_session():
+    """Get current session metrics (cumulative PnL, drawdown, Sharpe, etc.)."""
+    manager = _get_session_manager()
+    metrics = manager.get_session_metrics()
+    return dict(metrics)
+
+
+@app.get("/pnl/trades")
+async def get_pnl_trades(limit: int = 100):
+    """Get executed trade history with P&L details."""
+    manager = _get_session_manager()
+    trades = manager.trades[-limit:]
+    return {
+        "total_count": len(manager.trades),
+        "trades": [dict(t) for t in trades],
+    }
+
+
+@app.get("/pnl/trades/history")
+async def get_trade_history(session_id: Optional[str] = None, limit: int = 100):
+    """Get executed trade history from persistent storage."""
+    try:
+        db = get_db()
+        trades = db.get_executed_trades(session_id=session_id, limit=limit)
+        return {
+            "total_count": len(trades),
+            "trades": trades,
+            "session_id": session_id,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch trade history: {str(e)}")
+
+
+@app.get("/pnl/positions")
+async def get_pnl_positions():
+    """Get current open positions with unrealized P&L."""
+    manager = _get_session_manager()
+    positions = {
+        pair: dict(pos)
+        for pair, pos in manager.open_positions.items()
+    }
+    
+    # Calculate total unrealized
+    total_unrealized = sum(
+        pos.get("unrealized_pnl", 0)
+        for pos in manager.open_positions.values()
+    )
+    
+    return {
+        "open_count": len(positions),
+        "total_unrealized_pnl": round(total_unrealized, 2),
+        "positions": positions,
+    }
+
+
+@app.get("/pnl/chart")
+async def get_pnl_chart():
+    """Get time-series PnL data for charting cumulative return."""
+    manager = _get_session_manager()
+    
+    # Build cumulative PnL over time
+    chart_data = []
+    cumulative = 0.0
+    
+    for trade in manager.trades:
+        cumulative += trade.get("net_pnl", 0)
+        chart_data.append({
+            "timestamp": trade.get("timestamp", 0),
+            "cumulative_pnl": round(cumulative, 2),
+            "pair": trade.get("pair", "unknown"),
+            "pnl": round(trade.get("net_pnl", 0), 2),
+        })
+    
+    return {
+        "data": chart_data,
+        "peak": round(manager.peak_pnl, 2),
+        "current": round(manager.cumulative_pnl, 2),
+        "drawdown_pct": round(manager.get_current_drawdown_pct(), 2),
+    }
+
+
+@app.post("/emergency-stop")
+async def emergency_stop():
+    """Emergency halt — stops all trading cycles and pending trades."""
+    global _cycle_running
+    _cycle_running = False
+    
+    manager = _get_session_manager()
+    manager.circuit_breaker_active = True
+    manager.halt_reason = "Emergency stop triggered by user"
+    
+    logger.warning("[EMERGENCY STOP] All trading halted immediately")
+    
+    return {
+        "status": "halted",
+        "reason": "Emergency stop triggered",
+        "halt_reason": manager.halt_reason,
+    }

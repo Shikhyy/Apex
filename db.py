@@ -34,6 +34,8 @@ class Database:
         self._memory_cycles: list[dict] = []
         self._memory_reputation: list[dict] = []
 
+        self._memory_trades: list[dict] = []
+
         if self._use_supabase:
             from supabase import Client, create_client
 
@@ -142,6 +144,51 @@ class Database:
             if snap.get("agent_id") == agent_id:
                 return snap
         return None
+
+    def insert_executed_trade(self, trade: dict) -> None:
+        """Insert an executed trade record."""
+        payload = {
+            "trade_id": trade.get("trade_id"),
+            "session_id": trade.get("session_id", ""),
+            "timestamp": trade.get("timestamp", 0),
+            "cycle_number": trade.get("cycle_number", 0),
+            "source": trade.get("source", ""),  # kraken, surge
+            "pair": trade.get("pair", ""),
+            "side": trade.get("side", ""),
+            "amount_usd": float(trade.get("amount_usd", 0)),
+            "entry_price": float(trade.get("entry_price", 0)),
+            "exit_price": float(trade.get("exit_price", 0)),
+            "gross_pnl": float(trade.get("gross_pnl", 0)),
+            "fees_usd": float(trade.get("fees_usd", 0)),
+            "net_pnl": float(trade.get("net_pnl", 0)),
+            "tx_hash": trade.get("tx_hash", ""),
+            "kraken_order_id": trade.get("kraken_order_id"),
+            "guardian_approved": bool(trade.get("guardian_approved", True)),
+            "is_open": bool(trade.get("is_open", False)),
+        }
+        if self._use_supabase:
+            try:
+                self.client.table("executed_trades").insert(payload).execute()
+            except Exception as e:
+                logger.error("Failed to insert executed trade into Supabase: %s", e)
+        self._memory_trades.append(payload)
+
+    def get_executed_trades(self, session_id: Optional[str] = None, limit: int = 100) -> list[dict]:
+        """Get executed trade history."""
+        if self._use_supabase:
+            try:
+                q = self.client.table("executed_trades").select("*").order("timestamp", desc=True).limit(limit)
+                if session_id:
+                    q = q.eq("session_id", session_id)
+                result = q.execute()
+                if result.data:
+                    return result.data
+            except Exception as e:
+                logger.error("Failed to fetch executed trades from Supabase: %s", e)
+        
+        if session_id:
+            return [t for t in self._memory_trades if t.get("session_id") == session_id][-limit:]
+        return self._memory_trades[-limit:]
 
 
 # Module-level singleton

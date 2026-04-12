@@ -54,3 +54,5 @@ docs/
 contracts/cache/
 contracts/out/
 contracts/lib/
+*.pptx
+*.pdf

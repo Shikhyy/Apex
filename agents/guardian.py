@@ -7,6 +7,7 @@ from typing import Optional
 from langchain_groq import ChatGroq
 from agents.graph import APEXState, GuardianReason
 from mcp_tools.risk_analysis import calculate_projected_drawdown, fetch_agent_reputation
+from lib.session_manager import SessionManager
 from dotenv import load_dotenv
 import os
 
@@ -123,6 +124,23 @@ def guardian_node(state: APEXState) -> dict:
     """
     try:
         thresholds = _active_thresholds()
+
+        # ── 0. Session Drawdown Circuit Breaker ──────────────────────────
+        # Check if session-level drawdown has exceeded halt threshold
+        try:
+            from api import _get_session_manager
+            manager = _get_session_manager()
+            if manager.check_circuit_breaker():
+                print(
+                    f"[Guardian] VETO: {manager.get_halt_reason()}"
+                )
+                return _veto(
+                    "VETOED",
+                    "circuit_breaker",
+                    manager.get_halt_reason() or "Session circuit breaker triggered",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to check session circuit breaker: {e}")
 
         # ── 1. Deterministic pre-checks ──────────────────────────────────
         ranked_intents = state.get("ranked_intents", [])
