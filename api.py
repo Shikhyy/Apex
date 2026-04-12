@@ -49,6 +49,8 @@ app.add_middleware(
 
 # In-memory cycle log
 cycle_log: list[dict] = []
+MAX_CYCLE_LOG_ITEMS = int(os.environ.get("APEX_MAX_CYCLE_LOG_ITEMS", "500"))
+MAX_STREAM_REPLAY_ITEMS = int(os.environ.get("APEX_MAX_STREAM_REPLAY_ITEMS", "5"))
 _cycle_running = False
 _last_cycle_time: float = 0
 CYCLE_COOLDOWN_SECONDS = 5
@@ -161,32 +163,41 @@ async def _execute_cycle(user_wallet: Optional[str] = None) -> None:
         async for event in apex_graph.astream(state, config=config):
             for node_name, node_output in event.items():
                 ts = datetime.now(timezone.utc).isoformat()
+                ranked_intents = node_output.get("ranked_intents", [])
+                top_intent = ranked_intents[0] if isinstance(ranked_intents, list) and ranked_intents else None
+                compact_top_intent = None
+                if isinstance(top_intent, dict):
+                    opp = top_intent.get("opportunity", {}) if isinstance(top_intent.get("opportunity", {}), dict) else {}
+                    compact_top_intent = {
+                        "amount_usd": top_intent.get("amount_usd"),
+                        "eip712_signature": top_intent.get("eip712_signature"),
+                        "intent_hash": top_intent.get("intent_hash"),
+                        "opportunity": {
+                            "protocol": opp.get("protocol"),
+                            "pool": opp.get("pool"),
+                        },
+                    }
+
                 sse_event = {
                     "node": node_name,
                     "timestamp": ts,
                     "data": {
-                        k: v
-                        for k, v in node_output.items()
-                        if k
-                        in (
-                            "guardian_decision",
-                            "guardian_reason",
-                            "guardian_detail",
-                            "guardian_confidence",
-                            "tx_hash",
-                            "actual_pnl",
-                            "execution_error",
-                            "execution_mode",
-                            "executed_protocol",
-                            "executing_wallet",
-                            "opportunities",
-                            "ranked_intents",
-                            "volatility_index",
-                            "sentiment_score",
-                            "scout_reasoning",
-                            "strategist_reasoning",
-                            "user_wallet",
-                        )
+                        "guardian_decision": node_output.get("guardian_decision"),
+                        "guardian_reason": node_output.get("guardian_reason"),
+                        "guardian_detail": node_output.get("guardian_detail"),
+                        "guardian_confidence": node_output.get("guardian_confidence"),
+                        "tx_hash": node_output.get("tx_hash"),
+                        "actual_pnl": node_output.get("actual_pnl"),
+                        "execution_error": node_output.get("execution_error"),
+                        "execution_mode": node_output.get("execution_mode"),
+                        "executed_protocol": node_output.get("executed_protocol"),
+                        "executing_wallet": node_output.get("executing_wallet"),
+                        "volatility_index": node_output.get("volatility_index"),
+                        "sentiment_score": node_output.get("sentiment_score"),
+                        "opportunities_count": len(node_output.get("opportunities", [])) if isinstance(node_output.get("opportunities", []), list) else 0,
+                        "ranked_intents_count": len(ranked_intents) if isinstance(ranked_intents, list) else 0,
+                        "ranked_intents": [compact_top_intent] if compact_top_intent else [],
+                        "user_wallet": node_output.get("user_wallet"),
                     },
                     "user_wallet": normalized_wallet,
                 }
@@ -198,6 +209,8 @@ async def _execute_cycle(user_wallet: Optional[str] = None) -> None:
                         "user_wallet": normalized_wallet,
                     }
                 )
+                if len(cycle_log) > MAX_CYCLE_LOG_ITEMS:
+                    del cycle_log[:-MAX_CYCLE_LOG_ITEMS]
                 _persist_cycle_event(
                     node_name,
                     ts,
@@ -245,6 +258,8 @@ async def _execute_cycle(user_wallet: Optional[str] = None) -> None:
             "user_wallet": normalized_wallet,
         }
         cycle_log.append(done_event)
+        if len(cycle_log) > MAX_CYCLE_LOG_ITEMS:
+            del cycle_log[:-MAX_CYCLE_LOG_ITEMS]
         _persist_cycle_event(
             "done",
             done_event["timestamp"],
@@ -275,7 +290,7 @@ async def _stream_cycle_events(user_wallet: Optional[str] = None) -> AsyncGenera
             if normalized_wallet is None
             or _normalize_wallet_address(item.get("user_wallet")) == normalized_wallet
         ]
-        for item in matching_history[-50:]:
+        for item in matching_history[-MAX_STREAM_REPLAY_ITEMS:]:
             yield _format_cycle_event(
                 {"node": item["node"], "timestamp": item["timestamp"], "data": item["data"]}
             )

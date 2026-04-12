@@ -15,12 +15,14 @@ interface TradeHistoryProps {
   trades: Trade[];
 }
 
+type SortBy = "time" | "pnl" | "size";
+
 /**
  * Trade History Component
  * Displays sortable table of executed trades
  */
 export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
-  const [sortBy, setSortBy] = useState<"time" | "pnl" | "size">("time");
+  const [sortBy, setSortBy] = useState<SortBy>("time");
 
   const sortedTrades = [...trades].sort((a, b) => {
     switch (sortBy) {
@@ -40,7 +42,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
         <h3 className="text-lg font-bold text-gray-800">Trade History</h3>
         <select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
+          onChange={(e) => setSortBy(e.target.value as SortBy)}
           className="text-sm border border-gray-300 rounded px-2 py-1"
         >
           <option value="time">Sort by Time</option>

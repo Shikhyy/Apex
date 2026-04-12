@@ -76,7 +76,7 @@ export const PnLChart: React.FC<PnLChartProps> = ({ data, peak, current }) => {
                 border: "1px solid #e5e7eb",
                 borderRadius: "8px",
               }}
-              formatter={(value: any) => `$${value.toFixed(2)}`}
+              formatter={(value) => `$${Number(value ?? 0).toFixed(2)}`}
               labelFormatter={(label) => `Time: ${label}`}
             />
             <Legend />

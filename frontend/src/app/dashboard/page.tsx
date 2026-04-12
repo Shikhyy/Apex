@@ -57,11 +57,14 @@ function summarizeAgentSignal(
   const latest = agentEvents.at(-1);
 
   if (agentName === "scout") {
-    const opportunities = (latest?.data.opportunities as unknown[] | undefined) || [];
+    const opportunitiesCount = Number(
+      latest?.data.opportunities_count ??
+      (((latest?.data.opportunities as unknown[] | undefined) || []).length)
+    );
     const volatility = Number(latest?.data.volatility_index ?? 0);
     const sentiment = Number(latest?.data.sentiment_score ?? 0);
     return {
-      headline: `${opportunities.length} opportunities mapped`,
+      headline: `${opportunitiesCount} opportunities mapped`,
       detail: `Volatility ${volatility.toFixed(1)} | Sentiment ${sentiment.toFixed(2)}`,
       statusLabel: state.activeNode === "scout" ? "SCANNING" : agentEvents.length > 0 ? "COMPLETE" : "STANDBY",
       eventCount: agentEvents.length,
@@ -69,9 +72,12 @@ function summarizeAgentSignal(
   }
 
   if (agentName === "strategist") {
-    const intents = (latest?.data.ranked_intents as unknown[] | undefined) || [];
+    const intentsCount = Number(
+      latest?.data.ranked_intents_count ??
+      (((latest?.data.ranked_intents as unknown[] | undefined) || []).length)
+    );
     return {
-      headline: `${intents.length} ranked intents`,
+      headline: `${intentsCount} ranked intents`,
       detail: state.activeNode === "strategist" ? "Optimizing capital allocation" : "Awaiting scout output",
       statusLabel: state.activeNode === "strategist" ? "RANKING" : agentEvents.length > 0 ? "COMPLETE" : "STANDBY",
       eventCount: agentEvents.length,
@@ -113,8 +119,11 @@ export default function DashboardPage() {
   const { address, isConnected } = useAccount();
   const { writeContractAsync, isPending: isSubmittingTrade } = useWriteContract();
   const walletAddress = address?.toLowerCase();
+  const configuredApiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
   const streamUrl = isConnected && walletAddress
-    ? `/api/stream?user_wallet=${encodeURIComponent(walletAddress)}`
+    ? configuredApiBase
+      ? `${configuredApiBase}/stream?user_wallet=${encodeURIComponent(walletAddress)}`
+      : `/api/stream?user_wallet=${encodeURIComponent(walletAddress)}`
     : null;
   const { events, connected } = useSSE(streamUrl);
   const { state, updateFromSSE, resetState } = useCycle();

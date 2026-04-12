@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { motion } from "framer-motion";
 
 interface PnLHeaderProps {
@@ -16,7 +16,6 @@ export const PnLHeader: React.FC<PnLHeaderProps> = ({
   peakPnL,
   totalTrades,
 }) => {
-  const isPositive = currentPnL >= 0;
   const trend = currentPnL >= peakPnL ? "up" : "down";
 
   return (

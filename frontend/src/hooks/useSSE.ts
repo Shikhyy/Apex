@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import type { SSEEvent } from "@/lib/types";
 
-const MAX_EVENTS = 100;
+const MAX_EVENTS = 40;
+const BASE_RECONNECT_DELAY_MS = 3000;
+const MAX_RECONNECT_DELAY_MS = 30000;
 
 let singleton: {
   es: EventSource | null;
@@ -9,6 +11,7 @@ let singleton: {
   events: SSEEvent[];
   connected: boolean;
   url: string | null;
+  reconnectAttempts: number;
 } | null = null;
 
 function connectSSE(url: string) {
@@ -21,6 +24,7 @@ function connectSSE(url: string) {
   es.onopen = () => {
     if (singleton) {
       singleton.connected = true;
+      singleton.reconnectAttempts = 0;
       singleton.listeners.forEach((fn) => fn());
     }
   };
@@ -30,12 +34,19 @@ function connectSSE(url: string) {
     singleton.connected = false;
     singleton.es = null;
     singleton.listeners.forEach((fn) => fn());
-    // Reconnect after 3s if there are still listeners
+    // Reconnect with capped exponential backoff + jitter.
+    const attempt = singleton.reconnectAttempts;
+    singleton.reconnectAttempts += 1;
+    const backoff = Math.min(
+      MAX_RECONNECT_DELAY_MS,
+      BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt)
+    );
+    const jitter = Math.floor(Math.random() * 1000);
     setTimeout(() => {
       if (singleton && singleton.listeners.size > 0 && singleton.url) {
         connectSSE(singleton.url);
       }
-    }, 3000);
+    }, backoff + jitter);
   };
 
   const types: SSEEvent["type"][] = [
@@ -82,6 +93,7 @@ export function useSSE(url: string | null) {
         events: [],
         connected: false,
         url: null,
+        reconnectAttempts: 0,
       };
     }
     singleton.listeners.add(notify);
