@@ -161,7 +161,7 @@ export default function AgentCard({
         {agentId !== undefined && (
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <Link
-              href={`https://sepolia.basescan.org/token/${agentId}`}
+              href={`https://sepolia.etherscan.io/token/${agentId}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{

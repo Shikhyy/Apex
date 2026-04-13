@@ -62,7 +62,7 @@ export default function Topbar({
               animation: connected ? "pulse 2s infinite" : "none",
             }}
           />
-          Base Sepolia
+          Sepolia
         </span>
 
         <span

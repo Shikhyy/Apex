@@ -10,18 +10,14 @@ from eth_account.messages import encode_typed_data
 
 logger = logging.getLogger(__name__)
 
-EIP712_DOMAIN = {
-    "name": "APEX",
-    "version": "1",
-    "chainId": 84532,
-    "verifyingContract": "0x0000000000000000000000000000000000000000",
-}
-
 EIP712_TYPES = {
     "TradeIntent": [
-        {"name": "protocol", "type": "string"},
-        {"name": "pool", "type": "string"},
-        {"name": "amount_usd", "type": "uint256"},
+        {"name": "agentId", "type": "uint256"},
+        {"name": "agentWallet", "type": "address"},
+        {"name": "pair", "type": "string"},
+        {"name": "action", "type": "string"},
+        {"name": "amountUsdScaled", "type": "uint256"},
+        {"name": "maxSlippageBps", "type": "uint256"},
         {"name": "deadline", "type": "uint256"},
         {"name": "nonce", "type": "uint256"},
     ]
@@ -37,10 +33,29 @@ def _get_signer() -> Optional[Account]:
     Returns an eth_account.Account if the key is set.
     Raises when key is missing so signing never silently uses mock data.
     """
-    private_key = os.environ.get("APEX_PRIVATE_KEY")
+    private_key = (
+        os.environ.get("AGENT_WALLET_PRIVATE_KEY")
+        or os.environ.get("APEX_AGENT_WALLET_PRIVATE_KEY")
+        or os.environ.get("APEX_PRIVATE_KEY")
+    )
     if not private_key:
         raise RuntimeError("APEX_PRIVATE_KEY not set; EIP-712 signing is required")
+    if not private_key.startswith("0x"):
+        private_key = f"0x{private_key}"
     return Account.from_key(private_key)
+
+
+def _riskrouter_domain() -> dict:
+    chain_id = int(os.environ.get("CHAIN_ID", "11155111"))
+    verifying = os.environ.get(
+        "RISK_ROUTER_ADDRESS", "0xd6A6952545FF6E6E6681c2d15C59f9EB8F40FdBC"
+    )
+    return {
+        "name": "RiskRouter",
+        "version": "1",
+        "chainId": chain_id,
+        "verifyingContract": verifying,
+    }
 
 
 def _generate_intent_hash(trade_intent: dict) -> str:
@@ -75,19 +90,37 @@ def generate_eip712_intent(trade_intent: dict) -> dict:
     intent_hash = _generate_intent_hash(trade_intent)
 
     opp = trade_intent["opportunity"]
-    amount_usd_int = int(trade_intent["amount_usd"] * 1e18)  # scale to wei-like units
+    signer = _get_signer()
+    if signer is None:
+        trade_intent["eip712_signature"] = "0x" + "00" * 65
+        trade_intent["intent_hash"] = intent_hash
+        return trade_intent
+
+    amount_scaled = int(float(trade_intent["amount_usd"]) * 100)
+    agent_id = int(
+        trade_intent.get("agent_id")
+        or trade_intent.get("agentId")
+        or os.environ.get("APEX_EXECUTOR_AGENT_ID", "0")
+    )
+    agent_wallet = (
+        trade_intent.get("agent_wallet")
+        or trade_intent.get("agentWallet")
+        or signer.address
+    )
 
     message = {
-        "protocol": opp["protocol"],
-        "pool": opp["pool"],
-        "amount_usd": amount_usd_int,
+        "agentId": agent_id,
+        "agentWallet": agent_wallet,
+        "pair": trade_intent.get("pair") or opp.get("pair") or "ETHUSD",
+        "action": str(trade_intent.get("action") or opp.get("action") or "BUY").upper(),
+        "amountUsdScaled": amount_scaled,
+        "maxSlippageBps": int(trade_intent.get("maxSlippageBps", 100)),
         "deadline": trade_intent.get("deadline", 0) or 0,
         "nonce": trade_intent.get("nonce", 0) or 0,
     }
 
-    signer = _get_signer()
     signable = encode_typed_data(
-        domain_data=EIP712_DOMAIN,
+        domain_data=_riskrouter_domain(),
         message_types=EIP712_TYPES,
         message_data=message,
     )
@@ -95,7 +128,8 @@ def generate_eip712_intent(trade_intent: dict) -> dict:
     signature = signed.signature.hex()
 
     trade_intent["eip712_signature"] = signature
-    trade_intent["intent_hash"] = intent_hash
+    trade_intent["intent_hash"] = signed.message_hash.hex()
+    trade_intent["riskrouter_intent"] = message
     return trade_intent
 
 

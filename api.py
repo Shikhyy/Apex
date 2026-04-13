@@ -80,7 +80,7 @@ _autotrader_task: asyncio.Task | None = None
 
 IDENTITY_REGISTRY = os.environ.get(
     "IDENTITY_REGISTRY_ADDRESS",
-    "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3",
 )
 
 
@@ -392,6 +392,15 @@ async def health():
     key_set = bool(os.environ.get("APEX_PRIVATE_KEY"))
     ids = _load_agent_ids()
     ids_loaded = all(v and v > 0 for v in ids.values())
+    rpc_url = os.environ.get("SEPOLIA_RPC_URL") or os.environ.get("BASE_SEPOLIA_RPC")
+    rpc_connected = False
+    if rpc_url:
+        try:
+            from web3 import Web3
+
+            rpc_connected = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 5})).is_connected()
+        except Exception:
+            rpc_connected = False
 
     return {
         "status": "ok",
@@ -403,7 +412,7 @@ async def health():
         "agent_ids_loaded": ids_loaded,
         "autotrader_enabled": AUTO_TRADER_ENABLED,
         "autotrader_running": _autotrader_task is not None and not _autotrader_task.done(),
-        "base_rpc_connected": True,
+        "base_rpc_connected": rpc_connected,
     }
 
 
@@ -512,9 +521,17 @@ async def get_agents():
             "role": "On-Chain & CEX Trade Executor",
         },
     ]
+    if ids.get("quant", 0) > 0:
+        agents.append(
+            {
+                "name": "quant",
+                "agent_id": ids["quant"],
+                "role": "Portfolio Optimizer",
+            }
+        )
     return {
         "agents": agents,
-        "network": "base-sepolia",
+        "network": "sepolia",
         "identity_registry": IDENTITY_REGISTRY,
     }
 

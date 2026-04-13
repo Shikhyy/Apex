@@ -78,14 +78,16 @@ def _load_agent_ids() -> dict[str, int]:
     try:
         with open(path) as f:
             data = json.load(f)
+        ids = {key: int(value) for key, value in data.items() if isinstance(value, int) and value > 0}
         return {
-            "scout": data.get("scout") or 0,
-            "strategist": data.get("strategist") or 0,
-            "guardian": data.get("guardian") or 0,
-            "executor": data.get("executor") or 0,
+            "scout": ids.get("scout", 0),
+            "strategist": ids.get("strategist", 0),
+            "guardian": ids.get("guardian", 0),
+            "executor": ids.get("executor", 0),
+            "quant": ids.get("quant", 0),
         }
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"scout": 0, "strategist": 0, "guardian": 0, "executor": 0}
+        return {"scout": 0, "strategist": 0, "guardian": 0, "executor": 0, "quant": 0}
 
 
 def _default_state() -> APEXState:

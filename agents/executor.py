@@ -93,7 +93,9 @@ def _attempt_real_execution(
     """Implement real Web3 execution via RiskRouter contract on Base Sepolia."""
     route = _resolve_execution_route(opportunity)
     private_key = os.environ.get("APEX_PRIVATE_KEY")
-    rpc_url = os.environ.get("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
+    rpc_url = os.environ.get("SEPOLIA_RPC_URL") or os.environ.get(
+        "BASE_SEPOLIA_RPC", "https://ethereum-sepolia-rpc.publicnode.com"
+    )
     router_address = os.environ.get("RISK_ROUTER_ADDRESS")
     agent_id = os.environ.get("APEX_EXECUTOR_AGENT_ID", 1)  # Or any valid ID
 
@@ -204,56 +206,95 @@ def _attempt_real_execution(
                 f"have={wallet_balance_wei} wei need~={min_required_wei} wei"
             )
 
-        # 1. Ask Strategist/Signing util to make an EIP-712 intent
+        # 1. Ask Strategist/Signing util to make a Path B EIP-712 intent
         base_intent = {
             "opportunity": opportunity,
             "amount_usd": amount_usd,
             "expected_pnl": amount_usd * (opportunity.get("apy", 0) / 100),
             "confidence": 0.9,
             "deadline": int(time.time()) + 3600,
-            "nonce": int(time.time() * 1000) % 1000000
+            "nonce": int(time.time() * 1000) % 1000000,
+            "agent_id": int(agent_id),
         }
         signed_intent = generate_eip712_intent(base_intent)
+        intent_payload = signed_intent.get("riskrouter_intent")
+        if not intent_payload:
+            raise RuntimeError("Signing helper did not return RiskRouter intent payload")
 
-        # 2. Get the RiskRouter ABI from compiled out directory
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        try:
-            with open(os.path.join(project_root, "contracts", "out", "RiskRouter.sol", "RiskRouter.json")) as f:
-                artifact = __import__("json").load(f)
-                abi = artifact["abi"]
-        except Exception:
-            raise RuntimeError("RiskRouter ABI missing at contracts/out/RiskRouter.sol/RiskRouter.json")
+        # 2. Setup shared RiskRouter contract ABI (Path B tuple submit)
+        router_abi = [
+            {
+                "inputs": [
+                    {
+                        "components": [
+                            {"internalType": "uint256", "name": "agentId", "type": "uint256"},
+                            {"internalType": "address", "name": "agentWallet", "type": "address"},
+                            {"internalType": "string", "name": "pair", "type": "string"},
+                            {"internalType": "string", "name": "action", "type": "string"},
+                            {"internalType": "uint256", "name": "amountUsdScaled", "type": "uint256"},
+                            {"internalType": "uint256", "name": "maxSlippageBps", "type": "uint256"},
+                            {"internalType": "uint256", "name": "nonce", "type": "uint256"},
+                            {"internalType": "uint256", "name": "deadline", "type": "uint256"},
+                        ],
+                        "internalType": "struct RiskRouter.TradeIntent",
+                        "name": "intent",
+                        "type": "tuple",
+                    },
+                    {"internalType": "bytes", "name": "signature", "type": "bytes"},
+                ],
+                "name": "submitTradeIntent",
+                "outputs": [
+                    {"internalType": "bool", "name": "approved", "type": "bool"},
+                    {"internalType": "string", "name": "reason", "type": "string"},
+                ],
+                "stateMutability": "nonpayable",
+                "type": "function",
+            },
+            {
+                "inputs": [
+                    {
+                        "components": [
+                            {"internalType": "uint256", "name": "agentId", "type": "uint256"},
+                            {"internalType": "address", "name": "agentWallet", "type": "address"},
+                            {"internalType": "string", "name": "pair", "type": "string"},
+                            {"internalType": "string", "name": "action", "type": "string"},
+                            {"internalType": "uint256", "name": "amountUsdScaled", "type": "uint256"},
+                            {"internalType": "uint256", "name": "maxSlippageBps", "type": "uint256"},
+                            {"internalType": "uint256", "name": "nonce", "type": "uint256"},
+                            {"internalType": "uint256", "name": "deadline", "type": "uint256"},
+                        ],
+                        "internalType": "struct RiskRouter.TradeIntent",
+                        "name": "intent",
+                        "type": "tuple",
+                    }
+                ],
+                "name": "simulateIntent",
+                "outputs": [
+                    {"internalType": "bool", "name": "valid", "type": "bool"},
+                    {"internalType": "string", "name": "reason", "type": "string"},
+                ],
+                "stateMutability": "view",
+                "type": "function",
+            },
+        ]
+        router_contract = w3.eth.contract(address=router_address, abi=router_abi)
 
-        # 3. Setup Contract
-        router_contract = w3.eth.contract(address=router_address, abi=abi)
-        
-        # 4. Extract fields according to Solidity ABI
-        protocol = opportunity.get("protocol", "unknown")
-        pool = opportunity.get("pool", "unknown")
-        # Amount in Wei equivalent
-        wei_amount = int(amount_usd * 1e18)
-        deadline = signed_intent["deadline"]
-        nonce = signed_intent["nonce"]
-        leverage = 1
+        # 3. Preflight checks and submission
+        valid, reason = router_contract.functions.simulateIntent(intent_payload).call()
+        if not valid:
+            raise RuntimeError(f"Intent simulation failed: {reason}")
+
         signature = bytes.fromhex(signed_intent["eip712_signature"].replace("0x", ""))
-
         tx_nonce = w3.eth.get_transaction_count(account.address, "pending")
-        
-        # 5. Build and submit transaction
-        # function submitTradeIntent(uint256 agentId, string protocol, string pool, uint256 amountUsd, uint256 deadline, uint256 nonce, uint256 leverage, bytes signature)
+
+        # function submitTradeIntent((...), bytes signature)
         tx = router_contract.functions.submitTradeIntent(
-            int(agent_id),
-            protocol,
-            pool,
-            wei_amount,
-            deadline,
-            nonce,
-            leverage,
+            intent_payload,
             signature
         ).build_transaction({
             "from": account.address,
             "nonce": tx_nonce,
-            "gas": 300_000,
+            "gas": 450_000,
             "gasPrice": gas_price,
         })
 
@@ -264,29 +305,13 @@ def _attempt_real_execution(
         if submit_receipt.status != 1:
             raise RuntimeError("submitTradeIntent reverted on-chain")
 
-        # 6. Simulate returning of Profit through contract (grows the money!)
         pnl = amount_usd * (opportunity.get("apy", 0) / 100) * random.uniform(0.9, 1.1)
-        wei_profit = int(pnl * 1e18)
-        record_tx = router_contract.functions.recordProfit(
-            account.address,
-            wei_profit
-        ).build_transaction({
-            "from": account.address,
-            "nonce": tx_nonce + 1,
-            "gas": 150_000,
-            "gasPrice": gas_price,
-        })
-        signed_record_tx = account.sign_transaction(record_tx)
-        record_hash = w3.eth.send_raw_transaction(signed_record_tx.raw_transaction)
-        record_receipt = w3.eth.wait_for_transaction_receipt(record_hash, timeout=180)
-        if record_receipt.status != 1:
-            raise RuntimeError("recordProfit reverted on-chain")
 
         return {
             "execution_time": 2.5,
             "actual_pnl": round(pnl, 2),
             "tx_hash": tx_hash.hex(),
-            "protocol": "base-sepolia",
+            "protocol": "sepolia-riskrouter",
             "execution_mode": "live",
             "executing_wallet": account.address,
         }

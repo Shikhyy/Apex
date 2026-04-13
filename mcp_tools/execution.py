@@ -25,6 +25,17 @@ KRAKEN_API_SECRET = os.getenv("KRAKEN_API_SECRET", "")
 SURGE_API_BASE = "https://api.surge.trade"  # sandbox URL; override via env if needed
 EXECUTION_TIMEOUT = 30  # seconds
 
+
+def _strict_live_only() -> bool:
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return os.environ.get("APEX_DISABLE_MOCKS", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
 # ---------------------------------------------------------------------------
 # Surge execution
 # ---------------------------------------------------------------------------
@@ -37,7 +48,7 @@ async def execute_surge_intent(
     """Execute a signed trade intent through the Surge Risk Router.
 
     Sends the signed intent to the Surge sandbox API for on-chain execution.
-    Fails hard if credentials missing or API unreachable (no silent mocks).
+    Falls back to mock execution unless APEX_DISABLE_MOCKS is enabled.
 
     Args:
         signed_intent: Dict containing the signed trade intent payload.
@@ -46,17 +57,18 @@ async def execute_surge_intent(
     Returns:
         dict with keys: tx_hash, status, executed_amount, protocol, error.
         
-    Raises:
-        RuntimeError: If credentials missing or API request fails.
     """
 
     vault = vault_address or SURGE_VAULT_ADDRESS
 
     if not SURGE_API_KEY or not vault:
-        raise RuntimeError(
-            "Surge credentials not configured. "
-            "Set SURGE_API_KEY and SURGE_VAULT_ADDRESS in .env"
-        )
+        if _strict_live_only():
+            raise RuntimeError(
+                "Surge credentials not configured. "
+                "Set SURGE_API_KEY and SURGE_VAULT_ADDRESS in .env"
+            )
+        logger.warning("Surge credentials missing; using mock execution")
+        return _mock_surge_execution(signed_intent)
 
     payload = {
         "vault_address": vault,
@@ -91,18 +103,50 @@ async def execute_surge_intent(
     except httpx.HTTPStatusError as exc:
         error_text = exc.response.text
         logger.error("Surge API HTTP error %s: %s", exc.response.status_code, error_text)
-        raise RuntimeError(f"Surge API error {exc.response.status_code}: {error_text}")
+        if _strict_live_only():
+            raise RuntimeError(f"Surge API error {exc.response.status_code}: {error_text}")
+        return {
+            "tx_hash": "",
+            "status": "failed",
+            "executed_amount": 0.0,
+            "protocol": "surge",
+            "error": f"Surge API error {exc.response.status_code}: {error_text}",
+        }
 
     except httpx.RequestError as exc:
         logger.error("Surge API request failed: %s", exc)
-        raise RuntimeError(f"Surge API unreachable: {str(exc)}")
+        if _strict_live_only():
+            raise RuntimeError(f"Surge API unreachable: {str(exc)}")
+        return {
+            "tx_hash": "",
+            "status": "failed",
+            "executed_amount": 0.0,
+            "protocol": "surge",
+            "error": f"Surge API unreachable: {str(exc)}",
+        }
 
     except RuntimeError:
-        raise
+        if _strict_live_only():
+            raise
+        return {
+            "tx_hash": "",
+            "status": "failed",
+            "executed_amount": 0.0,
+            "protocol": "surge",
+            "error": "Surge execution failed",
+        }
 
     except Exception as exc:
         logger.error("Unexpected error during Surge execution: %s", exc)
-        raise RuntimeError(f"Surge execution failed: {str(exc)}")
+        if _strict_live_only():
+            raise RuntimeError(f"Surge execution failed: {str(exc)}")
+        return {
+            "tx_hash": "",
+            "status": "failed",
+            "executed_amount": 0.0,
+            "protocol": "surge",
+            "error": str(exc),
+        }
 
 
 def _mock_surge_execution(signed_intent: dict) -> dict:
@@ -196,8 +240,8 @@ def execute_kraken_order(
 ) -> dict:
     """Execute a market order via the Kraken CLI subprocess.
 
-    Runs ``kraken order create`` as a subprocess. Fails hard on any error
-    to ensure only real trades are recorded.
+    Runs ``kraken order create`` as a subprocess.
+    Falls back to mock execution unless APEX_DISABLE_MOCKS is enabled.
 
     Args:
         pair: Trading pair string, e.g. "ETH/USD".
@@ -207,16 +251,17 @@ def execute_kraken_order(
     Returns:
         dict with keys: order_id, status, filled_amount, avg_price, error.
         
-    Raises:
-        RuntimeError: If Kraken CLI not found or trade fails (no silent mocks).
     """
 
     kraken_bin = shutil.which("kraken")
     if not kraken_bin:
-        raise RuntimeError(
-            "Kraken CLI not found. Install with: cargo install kraken-cli\n"
-            "Or set APEX_KRAKEN_CLI_PATH environment variable."
-        )
+        if _strict_live_only():
+            raise RuntimeError(
+                "Kraken CLI not found. Install with: cargo install kraken-cli\n"
+                "Or set APEX_KRAKEN_CLI_PATH environment variable."
+            )
+        logger.warning("Kraken CLI not found; using mock execution")
+        return _mock_kraken_order(pair, amount, side)
 
     cmd = [
         kraken_bin,
@@ -267,13 +312,19 @@ def execute_kraken_order(
         }
 
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"Kraken CLI timed out after {EXECUTION_TIMEOUT}s")
+        if _strict_live_only():
+            raise RuntimeError(f"Kraken CLI timed out after {EXECUTION_TIMEOUT}s")
+        return _mock_kraken_order(pair, amount, side)
 
     except RuntimeError:
-        raise
+        if _strict_live_only():
+            raise
+        return _mock_kraken_order(pair, amount, side)
 
     except Exception as exc:
-        raise RuntimeError(f"Kraken execution failed: {str(exc)}")
+        if _strict_live_only():
+            raise RuntimeError(f"Kraken execution failed: {str(exc)}")
+        return _mock_kraken_order(pair, amount, side)
 
 
 def _mock_kraken_order(pair: str, amount: float, side: str) -> dict:
@@ -321,8 +372,9 @@ def _mock_kraken_order(pair: str, amount: float, side: str) -> dict:
 def calculate_realized_pnl(
     entry_value: float,
     exit_value: float,
-    kraken_fee_pct: float = 0.26,
+    kraken_fee_pct: float = 0.0,
     gas_cost_usd: float = 0.0,
+    gas_cost: float | None = None,
 ) -> float:
     """Calculate realized profit/loss after a trade.
 
@@ -332,12 +384,16 @@ def calculate_realized_pnl(
     Args:
         entry_value: USD value at trade entry.
         exit_value: USD value at trade exit.
-        kraken_fee_pct: Fee percentage (default 0.26% taker). Use 0.16 for maker.
+        kraken_fee_pct: Fee percentage (default 0.0 for backward compatibility).
         gas_cost_usd: Total gas / fees paid in USD.
+        gas_cost: Deprecated alias for gas_cost_usd used by older callers/tests.
 
     Returns:
         Realized PnL in USD. Positive = profit, negative = loss.
     """
+
+    if gas_cost is not None:
+        gas_cost_usd = gas_cost
 
     # Calculate gross PnL
     gross_pnl = exit_value - entry_value

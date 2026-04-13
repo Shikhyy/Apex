@@ -55,7 +55,7 @@ export default function VetoRow({ timestamp, reason, detail, confidence, txHash 
       </span>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--amber)" }}>{Math.round(confidence * 100)}%</span>
       <a
-        href={`https://sepolia.basescan.org/tx/${txHash}`}
+        href={`https://sepolia.etherscan.io/tx/${txHash}`}
         target="_blank"
         rel="noopener noreferrer"
         style={{
@@ -65,7 +65,7 @@ export default function VetoRow({ timestamp, reason, detail, confidence, txHash 
           textAlign: "right",
         }}
       >
-        BaseScan ↗
+        Etherscan ↗
       </a>
     </div>
   );

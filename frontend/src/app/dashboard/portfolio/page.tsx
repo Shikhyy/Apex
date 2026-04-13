@@ -59,13 +59,20 @@ export default function PortfolioPage() {
         setPositions(pos);
 
         const t: Trade[] = [...sortedCycles]
-          .filter((c: { data: Record<string, unknown> }) => c.data.tx_hash !== undefined)
+          .filter((c: { data: Record<string, unknown> }) => {
+            const tx = String(c.data.tx_hash || "");
+            const pnl = c.data.actual_pnl;
+            return tx.length > 0 || pnl !== undefined;
+          })
           .slice(-10)
           .reverse()
           .map((c: { timestamp: string; data: Record<string, unknown>; node: string }) => ({
             timestamp: c.timestamp,
             action: c.node.toUpperCase(),
-            protocol: (c.data.protocol as string) || "—",
+            protocol:
+              ((c.data.executed_protocol as string) ||
+                (c.data.protocol as string) ||
+                (((c.data.opportunity as Record<string, unknown> | undefined)?.protocol as string) || "—")),
             amount: Number(c.data.amount_usd || 0),
             pnl: Number(c.data.actual_pnl || 0),
             txHash: (c.data.tx_hash as string) || "",
@@ -268,12 +275,12 @@ export default function PortfolioPage() {
                   </span>
                   {t.txHash ? (
                     <a
-                      href={`https://sepolia.basescan.org/tx/${t.txHash}`}
+                      href={`https://sepolia.etherscan.io/tx/${t.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ color: "var(--apex-burn)", textAlign: "right", fontSize: 10 }}
                     >
-                      BaseScan ↗
+                      Etherscan ↗
                     </a>
                   ) : (
                     <span style={{ color: "var(--mid)", textAlign: "right", fontSize: 10 }}>—</span>

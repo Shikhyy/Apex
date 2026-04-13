@@ -9,6 +9,13 @@ export function useReputation(agentId: bigint) {
   const cached = useRef<ReputationSummary | null>(null);
 
   const fetch = useCallback(async () => {
+    if (agentId <= BigInt(0)) {
+      setSummary(null);
+      setLoading(true);
+      setError(null);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);

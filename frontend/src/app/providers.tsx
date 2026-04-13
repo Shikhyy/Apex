@@ -4,14 +4,14 @@ import "@rainbow-me/rainbowkit/styles.css";
 
 import { getDefaultConfig, RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
 import { WagmiProvider } from "wagmi";
-import { baseSepolia, base } from "wagmi/chains";
+import { sepolia } from "wagmi/chains";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ReactNode } from "react";
 
 const config = getDefaultConfig({
   appName: "APEX",
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "apex-default-project-id",
-  chains: [baseSepolia, base],
+  chains: [sepolia],
   ssr: true,
 });
 

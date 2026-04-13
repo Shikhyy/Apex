@@ -129,7 +129,7 @@ async def check_erc8004_registry() -> HealthCheckResult:
     try:
         registry_address = os.environ.get(
             "IDENTITY_REGISTRY_ADDRESS",
-            "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+            "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3"
         )
         
         # Check if address is valid format

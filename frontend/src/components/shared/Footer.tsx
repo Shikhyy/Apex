@@ -2,7 +2,7 @@ import Logo from "./Logo";
 
 const externalLinks = [
   { href: "https://github.com", label: "GitHub" },
-  { href: "https://sepolia.basescan.org", label: "BaseScan" },
+  { href: "https://sepolia.etherscan.io", label: "Etherscan" },
   { href: "https://lablab.ai", label: "lablab.ai" },
 ];
 

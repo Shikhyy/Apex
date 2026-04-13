@@ -1,6 +1,7 @@
 {
-  "scout": 2,
-  "strategist": 3,
-  "guardian": 4,
-  "executor": 5
+  "scout": 80,
+  "strategist": 81,
+  "guardian": 82,
+  "executor": 83,
+  "quant": 88
 }

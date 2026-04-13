@@ -1,7 +1,10 @@
 {
-  "identity_registry": "0xE6fC2495eE4207d4D8444D03D2418566e4234A36",
-  "reputation_registry": "0xec6A0E1aB27882E222200F89D17f76eD8413c926",
-  "network": "base-sepolia",
-  "chain_id": 84532,
-  "risk_router": "0x3997f0Ed5A4389F9FA6Bb4Da6CBE9d14CdEa0BEe"
+  "identity_registry": "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3",
+  "reputation_registry": "0x423a9904e39537a9997fbaF0f220d79D7d545763",
+  "validation_registry": "0x92bF63E5C7Ac6980f237a7164Ab413BE226187F1",
+  "network": "sepolia",
+  "chain_id": 11155111,
+  "risk_router": "0xd6A6952545FF6E6E6681c2d15C59f9EB8F40FdBC",
+  "hackathon_vault": "0x0E7CD8ef9743FEcf94f9103033a044caBD45fC90",
+  "agent_registry": "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3"
 }

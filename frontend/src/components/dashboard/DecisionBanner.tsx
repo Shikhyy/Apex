@@ -60,7 +60,7 @@ export default function DecisionBanner({ decision }: DecisionBannerProps) {
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         {decision.txHash && (
           <a
-            href={`https://sepolia.basescan.org/tx/${decision.txHash}`}
+            href={`https://sepolia.etherscan.io/tx/${decision.txHash}`}
             target="_blank"
             rel="noopener noreferrer"
             style={{

@@ -16,7 +16,7 @@ interface Settings {
   cycleInterval: number;
   autoRun: boolean;
   maxRetries: number;
-  network: "base-sepolia" | "base-mainnet";
+  network: "sepolia" | "mainnet";
 }
 
 const defaultSettings: Settings = {
@@ -29,7 +29,7 @@ const defaultSettings: Settings = {
   cycleInterval: 300,
   autoRun: false,
   maxRetries: 3,
-  network: "base-sepolia",
+  network: "sepolia",
 };
 
 export default function SettingsPage() {
@@ -320,8 +320,8 @@ export default function SettingsPage() {
               marginBottom: 16,
             }}
           >
-            <option value="base-sepolia">Base Sepolia (Testnet)</option>
-            <option value="base-mainnet">Base Mainnet</option>
+            <option value="sepolia">Sepolia (Testnet)</option>
+            <option value="mainnet">Ethereum Mainnet</option>
           </select>
         </Card>
 

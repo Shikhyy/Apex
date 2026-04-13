@@ -11,26 +11,17 @@ import { SkeletonCard, SkeletonStat } from "@/components/ui/Skeleton";
 import { useSSE } from "@/hooks/useSSE";
 import { useCycle } from "@/hooks/useCycle";
 import { useReputation } from "@/hooks/useReputation";
-import { fetchHealth, fetchLog } from "@/lib/api";
+import { fetchAgents, fetchHealth, fetchLog } from "@/lib/api";
 import type { VetoEntry, AgentName } from "@/lib/types";
 import { useAccount, useWriteContract } from "wagmi";
 import { ADDRESSES, RISK_ROUTER_ABI } from "@/lib/contracts";
-import { parseUnits } from "viem";
 
-const agents: { name: AgentName; role: string; color: string; agentId: number }[] = [
-  { name: "scout", role: "Market Intelligence", color: "var(--apex-cream)", agentId: 1 },
-  { name: "strategist", role: "Portfolio Optimization", color: "var(--apex-burn)", agentId: 2 },
-  { name: "guardian", role: "Risk Enforcement", color: "var(--apex-dark-red)", agentId: 3 },
-  { name: "executor", role: "Trade Execution", color: "var(--apex-burn)", agentId: 4 },
-];
-
-function useAllReputations() {
-  const scout = useReputation(BigInt(1));
-  const strategist = useReputation(BigInt(2));
-  const guardian = useReputation(BigInt(3));
-  const executor = useReputation(BigInt(4));
-  return [scout, strategist, guardian, executor];
-}
+const agentStyles: Record<AgentName, { role: string; color: string }> = {
+  scout: { role: "Market Intelligence", color: "var(--apex-cream)" },
+  strategist: { role: "Portfolio Optimization", color: "var(--apex-burn)" },
+  guardian: { role: "Risk Enforcement", color: "var(--apex-dark-red)" },
+  executor: { role: "Trade Execution", color: "var(--apex-burn)" },
+};
 
 type AgentSignal = {
   headline: string;
@@ -43,6 +34,24 @@ type ActionStatus = {
   kind: "idle" | "info" | "success" | "error";
   message: string;
 };
+
+type RiskRouterIntent = {
+  agentId: bigint;
+  agentWallet: `0x${string}`;
+  pair: string;
+  action: string;
+  amountUsdScaled: bigint;
+  maxSlippageBps: bigint;
+  nonce: bigint;
+  deadline: bigint;
+};
+
+function toBigIntValue(value: unknown, fallback: bigint = BigInt(0)): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === "string" && value.length > 0) return BigInt(value);
+  return fallback;
+}
 
 function formatUsd(value: number): string {
   return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
@@ -132,19 +141,58 @@ export default function DashboardPage() {
   const [automationRunning, setAutomationRunning] = useState(false);
   const [actionStatus, setActionStatus] = useState<ActionStatus>({ kind: "idle", message: "" });
   const [lastHandledIntentHash, setLastHandledIntentHash] = useState<string>("");
-  const reputations = useAllReputations();
+  const [agentIds, setAgentIds] = useState<Record<AgentName, number>>({
+    scout: 0,
+    strategist: 0,
+    guardian: 0,
+    executor: 0,
+  });
+  const scoutRep = useReputation(BigInt(agentIds.scout));
+  const strategistRep = useReputation(BigInt(agentIds.strategist));
+  const guardianRep = useReputation(BigInt(agentIds.guardian));
+  const executorRep = useReputation(BigInt(agentIds.executor));
+  const reputations = useMemo(
+    () => [scoutRep, strategistRep, guardianRep, executorRep],
+    [scoutRep, strategistRep, guardianRep, executorRep]
+  );
   const riskRouterConfigured = Boolean(ADDRESSES.riskRouter);
 
   const dataLoaded = reputations.every((r) => !r.loading);
   const liveSignals = useMemo(
     () =>
-      agents.map((agent, index) => ({
-        ...agent,
-        signal: summarizeAgentSignal(agent.name, events, state),
+      (Object.keys(agentStyles) as AgentName[]).map((name, index) => ({
+        name,
+        agentId: agentIds[name],
+        role: agentStyles[name].role,
+        color: agentStyles[name].color,
+        signal: summarizeAgentSignal(name, events, state),
         reputation: reputations[index].summary?.normalized ?? 0,
       })),
-    [events, reputations, state]
+    [agentIds, events, reputations, state]
   );
+
+  useEffect(() => {
+    fetchAgents()
+      .then((response) => {
+        const nextIds: Record<AgentName, number> = {
+          scout: 0,
+          strategist: 0,
+          guardian: 0,
+          executor: 0,
+        };
+
+        response.agents.forEach((agent) => {
+          if (agent.name === "scout" || agent.name === "strategist" || agent.name === "guardian" || agent.name === "executor") {
+            nextIds[agent.name] = agent.agent_id;
+          }
+        });
+
+        setAgentIds(nextIds);
+      })
+      .catch(() => {
+        setAgentIds({ scout: 0, strategist: 0, guardian: 0, executor: 0 });
+      });
+  }, []);
 
   const cycleHealth = useMemo(
     () => [
@@ -267,19 +315,27 @@ export default function DashboardPage() {
     }
 
     const topIntent = intents[0] as Record<string, unknown>;
-    const opportunity = (topIntent.opportunity || {}) as Record<string, unknown>;
-    const amountUsd = Number(topIntent.amount_usd || 0);
-    const signature = String(topIntent.eip712_signature || "");
+    const riskrouterIntent = (topIntent.riskrouter_intent || topIntent.intent || {}) as Record<string, unknown>;
+    const signature = String(topIntent.eip712_signature || topIntent.signature || "");
     const intentHash = String(topIntent.intent_hash || "");
 
-    if (!opportunity.protocol || !opportunity.pool || amountUsd <= 0 || !signature || !intentHash) {
+    if (!riskrouterIntent.agentId || !riskrouterIntent.agentWallet || !riskrouterIntent.pair || !riskrouterIntent.action || !signature || !intentHash) {
       return null;
     }
 
+    const intent: RiskRouterIntent = {
+      agentId: toBigIntValue(riskrouterIntent.agentId),
+      agentWallet: String(riskrouterIntent.agentWallet) as `0x${string}`,
+      pair: String(riskrouterIntent.pair),
+      action: String(riskrouterIntent.action),
+      amountUsdScaled: toBigIntValue(riskrouterIntent.amountUsdScaled ?? riskrouterIntent.amountUsd ?? 0),
+      maxSlippageBps: toBigIntValue(riskrouterIntent.maxSlippageBps ?? 50),
+      nonce: toBigIntValue(riskrouterIntent.nonce ?? 0),
+      deadline: toBigIntValue(riskrouterIntent.deadline ?? 0),
+    };
+
     return {
-      protocol: String(opportunity.protocol),
-      pool: String(opportunity.pool),
-      amountUsd,
+      intent,
       intentHash,
       signature: signature.startsWith("0x") ? signature : `0x${signature}`,
     };
@@ -307,9 +363,6 @@ export default function DashboardPage() {
       return;
     }
 
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const nonce = BigInt(Date.now());
-
     try {
       setActionStatus({
         kind: "info",
@@ -320,16 +373,7 @@ export default function DashboardPage() {
         address: ADDRESSES.riskRouter,
         abi: RISK_ROUTER_ABI,
         functionName: "submitTradeIntent",
-        args: [
-          BigInt(4),
-          latestApprovedIntent.protocol,
-          latestApprovedIntent.pool,
-          parseUnits(latestApprovedIntent.amountUsd.toFixed(2), 18),
-          deadline,
-          nonce,
-          BigInt(1),
-          latestApprovedIntent.signature as `0x${string}`,
-        ],
+        args: [latestApprovedIntent.intent, latestApprovedIntent.signature as `0x${string}`],
       });
 
       setActionStatus({

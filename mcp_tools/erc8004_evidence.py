@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 GUARDIAN_AGENT_ID = os.environ.get("APEX_GUARDIAN_AGENT_ID", "2")
 IDENTITY_REGISTRY = os.environ.get(
-    "IDENTITY_REGISTRY_ADDRESS", "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    "IDENTITY_REGISTRY_ADDRESS", "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3"
 )
 BASE_SEPOLIA_RPC = os.environ.get("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
 PRIVATE_KEY = os.environ.get("APEX_PRIVATE_KEY", "")

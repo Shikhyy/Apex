@@ -6,18 +6,47 @@ import Topbar from "@/components/dashboard/Topbar";
 import RepScoreRing from "@/components/dashboard/RepScoreRing";
 import { useReputation } from "@/hooks/useReputation";
 import { getAgentWallet, getClients, readFeedback as readOnChainFeedback, ADDRESSES, REPUTATION_REGISTRY_ABI } from "@/lib/contracts";
+import { fetchAgents } from "@/lib/api";
 import type { AgentName, FeedbackEntry } from "@/lib/types";
 import { keccak256, toHex } from "viem";
 
-const agents: { name: AgentName; role: string; color: string; agentId: number; model: string }[] = [
-  { name: "scout", role: "Market Intelligence", color: "var(--apex-cream)", agentId: 1, model: "Groq LLM" },
-  { name: "strategist", role: "Portfolio Optimization", color: "var(--apex-burn)", agentId: 2, model: "Groq LLM" },
-  { name: "guardian", role: "Risk Enforcement", color: "var(--apex-dark-red)", agentId: 3, model: "Groq LLM" },
-  { name: "executor", role: "Trade Execution", color: "var(--apex-burn)", agentId: 4, model: "On-chain" },
-];
+const agentMeta: Record<AgentName, { role: string; color: string; model: string }> = {
+  scout: { role: "Market Intelligence", color: "var(--apex-cream)", model: "Groq LLM" },
+  strategist: { role: "Portfolio Optimization", color: "var(--apex-burn)", model: "Groq LLM" },
+  guardian: { role: "Risk Enforcement", color: "var(--apex-dark-red)", model: "Groq LLM" },
+  executor: { role: "Trade Execution", color: "var(--apex-burn)", model: "On-chain" },
+};
 
 export default function AgentsPage() {
   const { isConnected } = useAccount();
+  const [agents, setAgents] = useState<Array<{ name: AgentName; role: string; color: string; agentId: number; model: string }>>([]);
+
+  useEffect(() => {
+    fetchAgents()
+      .then((response) => {
+        const nextAgents = response.agents
+          .filter((agent) => agent.name === "scout" || agent.name === "strategist" || agent.name === "guardian" || agent.name === "executor")
+          .map((agent) => {
+            const name = agent.name as AgentName;
+            return {
+              name,
+              role: agentMeta[name].role,
+              color: agentMeta[name].color,
+              agentId: agent.agent_id,
+              model: agentMeta[name].model,
+            };
+          });
+        setAgents(nextAgents);
+      })
+      .catch(() => {
+        setAgents([
+          { name: "scout", role: agentMeta.scout.role, color: agentMeta.scout.color, agentId: 0, model: agentMeta.scout.model },
+          { name: "strategist", role: agentMeta.strategist.role, color: agentMeta.strategist.color, agentId: 0, model: agentMeta.strategist.model },
+          { name: "guardian", role: agentMeta.guardian.role, color: agentMeta.guardian.color, agentId: 0, model: agentMeta.guardian.model },
+          { name: "executor", role: agentMeta.executor.role, color: agentMeta.executor.color, agentId: 0, model: agentMeta.executor.model },
+        ]);
+      });
+  }, []);
 
   return (
     <>
@@ -94,7 +123,7 @@ function AgentDetailCard({
 
           <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
             <a
-              href={`https://sepolia.basescan.org/token/${agent.agentId}`}
+              href={`https://sepolia.etherscan.io/token/${agent.agentId}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--apex-burn)", textDecoration: "underline" }}

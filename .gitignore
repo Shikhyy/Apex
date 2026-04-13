@@ -1,58 +1,202 @@
-# macOS
-.DS_Store
+# Environment & Secrets (NEVER COMMIT)
+.env
+.env.local
+.env.*.local
+.env*.development
+.env*.production
+.env.test
+.env.dev
+.env.staging
+
+# Private Keys & Credentials (CRITICAL)
+private_key.txt
+*.key
+*.pem
+secrets/
+credentials.json
+.private/
+secret_*
+*.secret
+private_keys/
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-*.egg-info/
-dist/
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
 .eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
 *.egg
+MANIFEST
 
-# Virtual environment
+# Virtual Environment
 .venv/
 venv/
+ENV/
 env/
+env.bak/
+venv.bak/
+.venv_old/
 
-# Caches
+# Python Diagnostics & Caches
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
+.pytype/
+.dmypy.json
+dmypy.json
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+coverage.xml
+*.lcov
 
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Node
+# Node & Frontend
 node_modules/
-out/
-.superpowers/
-frontend/node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.npm
+.cache/
+
+# Next.js
 frontend/.next/
 frontend/out/
+frontend/dist/
+frontend/build/
+out/
 
-# IDE
+# IDE & Editors
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.sublime-project
+.sublime-workspace
+.vim
+.emacs.d/
+.jedi/
+
+# OS Specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.AppleDouble
+.LSOverride
 
 # Worktrees
 .worktrees/
 
-# OS
-Thumbs.db
-
-# Documentation (keep locally, never commit)
-docs/
-
-# Solidity / Foundry
+# Solidity / Foundry Build Artifacts
 contracts/cache/
 contracts/out/
-contracts/lib/
+contracts/dist/
+contracts/artifacts/
+
+# Supperpowers (local testing)
+.superpowers/
+
+# Video & Media Processing
+video/node_modules/
+video/dist/
+video/.remotion/
+videos/
+recordings/*.mp4
+*.mp4
+*.mov
+*.avi
+
+# Repository-Specific Test/Temp Fixtures
+test_data/
+test_outputs/
+debug/
+sandbox/
+tmp/
+temp/
+.tmp/
+
+# Jupyter & Interactive Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+.jupyter/
+
+# MCP Tools Build
+mcp_tools/__pycache__/
+mcp_tools/*.egg-info/
+
+# Build & Package Manager
+dist/
+build/
+*.tar.gz
+*.zip
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+*.log.*
+.logs/
+
+# Testing Artifacts
+.tox/
+
+# Supabase Local Development
+.supabase/
+supabase/.branches/
+
+# Docker
+.docker/
+
+# CI/CD
+.github/workflows/logs/
+ci-artifacts/
+
+# Documentation (keep locally only)
+docs/
+
+# Do not commit binary files
 *.pptx
 *.pdf
+*.docx
+
+# Project-Specific Temp
+test/temp/
+scripts/output/
+scripts/temp/
+scripts/*.tmp
+
+# Hackathon-Specific & Debug Scripts (Exclude most, keep only core deployment)
+scripts/*.py
+!scripts/register_agents.py
+!scripts/deploy_contracts.py
+!scripts/deploy_risk_router.py
+
+# Large binary files
+*.bin
+*.wasm
