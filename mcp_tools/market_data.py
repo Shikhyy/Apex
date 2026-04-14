@@ -242,7 +242,18 @@ async def fetch_volatility_index() -> float:
     """
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get("https://www.deribit.com/api/v2/public/get_volatility_index_data")
+            # Deribit requires params for this endpoint; use last 24h with hourly resolution.
+            now_ms = int(__import__("time").time() * 1000)
+            day_ms = 24 * 60 * 60 * 1000
+            resp = await client.get(
+                "https://www.deribit.com/api/v2/public/get_volatility_index_data",
+                params={
+                    "currency": "BTC",
+                    "start_timestamp": now_ms - day_ms,
+                    "end_timestamp": now_ms,
+                    "resolution": "60",
+                },
+            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -259,6 +270,16 @@ async def fetch_volatility_index() -> float:
                 for key in ("volatility", "value", "close"):
                     if key in last:
                         return float(last[key])
+        if isinstance(result, dict):
+            points = result.get("data")
+            if isinstance(points, list) and points:
+                last = points[-1]
+                if isinstance(last, (list, tuple)) and len(last) >= 2:
+                    return float(last[1])
+                if isinstance(last, dict):
+                    for key in ("volatility", "value", "close"):
+                        if key in last:
+                            return float(last[key])
     except Exception as exc:
         if _strict_real_only():
             raise RuntimeError(f"Volatility API failed: {exc}") from exc

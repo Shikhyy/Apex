@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
 
+MAX_MESSAGE_CHARS = int(os.environ.get("APEX_LLM_MAX_MESSAGE_CHARS", "6000"))
+MAX_TOTAL_PROMPT_CHARS = int(os.environ.get("APEX_LLM_MAX_TOTAL_PROMPT_CHARS", "12000"))
+
 
 def _is_rate_limit_error(exc: Exception) -> bool:
     msg = str(exc).lower()
@@ -49,6 +52,29 @@ def _normalize_messages(messages: list[Any]) -> list[tuple[str, str]]:
     return normalized
 
 
+def _truncate_messages(messages: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Trim overly long prompts to avoid provider hard limits."""
+    trimmed: list[tuple[str, str]] = []
+    for role, text in messages:
+        body = text if len(text) <= MAX_MESSAGE_CHARS else text[:MAX_MESSAGE_CHARS]
+        trimmed.append((role, body))
+
+    total = sum(len(text) for _, text in trimmed)
+    if total <= MAX_TOTAL_PROMPT_CHARS:
+        return trimmed
+
+    overflow = total - MAX_TOTAL_PROMPT_CHARS
+    reduced: list[tuple[str, str]] = []
+    for role, text in trimmed:
+        if overflow > 0 and role != "system" and len(text) > 1200:
+            shrink_by = min(overflow, len(text) - 1200)
+            text = text[: len(text) - shrink_by]
+            overflow -= shrink_by
+        reduced.append((role, text))
+
+    return reduced
+
+
 def _invoke_groq(messages: list[tuple[str, str]], api_key: str, temperature: float) -> str:
     llm = ChatGroq(
         model=DEFAULT_MODEL,
@@ -70,29 +96,42 @@ def _invoke_gemini(messages: list[tuple[str, str]], api_key: str, temperature: f
         prompt += "System instructions:\n" + "\n\n".join(system_parts) + "\n\n"
     prompt += "User request:\n" + "\n\n".join(user_parts)
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": temperature},
     }
 
+    models = [
+        GEMINI_MODEL,
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro-latest",
+    ]
+    errors: list[str] = []
     with httpx.Client(timeout=30.0) as client:
-        resp = client.post(url, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
+        for model in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            try:
+                resp = client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
 
-    candidates = data.get("candidates", [])
-    if not candidates:
-        raise RuntimeError(f"Gemini returned no candidates: {data}")
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    raise RuntimeError(f"Gemini returned no candidates: {data}")
 
-    parts = candidates[0].get("content", {}).get("parts", [])
-    if not parts:
-        raise RuntimeError(f"Gemini returned empty content: {data}")
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if not parts:
+                    raise RuntimeError(f"Gemini returned empty content: {data}")
 
-    text = parts[0].get("text", "")
-    if not text:
-        raise RuntimeError(f"Gemini returned no text: {data}")
-    return text
+                text = parts[0].get("text", "")
+                if not text:
+                    raise RuntimeError(f"Gemini returned no text: {data}")
+                return text
+            except Exception as exc:
+                errors.append(f"{model}: {exc}")
+                continue
+    raise RuntimeError("Gemini invocation failed: " + " | ".join(errors))
 
 
 def invoke_with_fallback(messages: list[Any], temperature: float = 0.1) -> str:
@@ -103,7 +142,7 @@ def invoke_with_fallback(messages: list[Any], temperature: float = 0.1) -> str:
     2) GROQ_API_KEY_FALLBACK
     3) GEMINI_API_KEY
     """
-    normalized = _normalize_messages(messages)
+    normalized = _truncate_messages(_normalize_messages(messages))
 
     primary = os.environ.get("GROQ_API_KEY", "").strip()
     secondary = os.environ.get("GROQ_API_KEY_FALLBACK", "").strip()

@@ -13,6 +13,18 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trading_strict_mode() -> bool:
+    """Enable strict infra checks only for real trading deployments."""
+    return _env_flag("APEX_REQUIRE_TRADING_INFRA", default=False)
+
+
 class HealthCheckResult:
     """Result of a single health check."""
     
@@ -32,6 +44,7 @@ async def check_kraken_cli() -> HealthCheckResult:
     """Verify Kraken CLI is installed and executable."""
     try:
         kraken_bin = shutil.which("kraken")
+        strict = _trading_strict_mode()
         if kraken_bin:
             return HealthCheckResult(
                 "Kraken CLI",
@@ -43,11 +56,11 @@ async def check_kraken_cli() -> HealthCheckResult:
             return HealthCheckResult(
                 "Kraken CLI",
                 False,
-                "Not found in PATH. Install with: cargo install kraken-cli",
-                critical=True
+                "Not found in PATH. Install with: cargo install kraken-cli (optional unless APEX_REQUIRE_TRADING_INFRA=true)",
+                critical=strict
             )
     except Exception as e:
-        return HealthCheckResult("Kraken CLI", False, str(e), critical=True)
+        return HealthCheckResult("Kraken CLI", False, str(e), critical=_trading_strict_mode())
 
 
 async def check_surge_api() -> HealthCheckResult:
@@ -56,12 +69,13 @@ async def check_surge_api() -> HealthCheckResult:
         api_key = os.environ.get("SURGE_API_KEY", "")
         vault = os.environ.get("SURGE_VAULT_ADDRESS", "")
         
+        strict = _trading_strict_mode()
         if not api_key or not vault:
             return HealthCheckResult(
                 "Surge Credentials",
                 False,
-                "Missing SURGE_API_KEY or SURGE_VAULT_ADDRESS",
-                critical=True
+                "Missing SURGE_API_KEY or SURGE_VAULT_ADDRESS (optional unless APEX_REQUIRE_TRADING_INFRA=true)",
+                critical=strict
             )
         
         # Try a simple API call
@@ -86,10 +100,10 @@ async def check_surge_api() -> HealthCheckResult:
             "Surge API",
             False,
             "Cannot reach https://api.surge.trade",
-            critical=True
+            critical=strict
         )
     except Exception as e:
-        return HealthCheckResult("Surge API", False, str(e), critical=True)
+        return HealthCheckResult("Surge API", False, str(e), critical=_trading_strict_mode())
 
 
 async def check_base_rpc() -> HealthCheckResult:
@@ -130,7 +144,7 @@ async def check_erc8004_registry() -> HealthCheckResult:
         registry_address = os.environ.get(
             "IDENTITY_REGISTRY_ADDRESS",
             "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3"
-        )
+        ).strip()
         
         # Check if address is valid format
         if not registry_address.startswith("0x") or len(registry_address) != 42:

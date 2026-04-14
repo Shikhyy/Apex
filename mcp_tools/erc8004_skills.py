@@ -21,11 +21,11 @@ PINATA_JWT = os.environ.get("PINATA_JWT", "")
 REPUTATION_REGISTRY_ADDRESS = os.environ.get(
     "REPUTATION_REGISTRY_ADDRESS",
     "0x423a9904e39537a9997fbaF0f220d79D7d545763",
-)
+).strip()
 IDENTITY_REGISTRY_ADDRESS = os.environ.get(
     "IDENTITY_REGISTRY_ADDRESS",
     "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3",
-)
+).strip()
 
 
 def _get_w3() -> Web3:

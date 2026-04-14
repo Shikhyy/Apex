@@ -28,7 +28,7 @@ def _rpc_url() -> str:
 
 
 def _registry_address() -> str:
-    return os.environ.get("REPUTATION_REGISTRY_ADDRESS", DEFAULT_REGISTRY_ADDRESS)
+    return os.environ.get("REPUTATION_REGISTRY_ADDRESS", DEFAULT_REGISTRY_ADDRESS).strip()
 
 REGISTRY_ABI = [
     {
